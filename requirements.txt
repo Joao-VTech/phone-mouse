@@ -1,0 +1,4 @@
+aiohttp>=3.9
+cryptography>=42
+pystray>=0.19
+Pillow>=10

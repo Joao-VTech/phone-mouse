@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Phone Mouse</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="theme-color" content="#111111">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root { --bg:#111; --fg:#eee; --btn:#2a2a2a; --act:#3b82f6; --mut:#888; }
+  * { box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:16px system-ui,sans-serif; overscroll-behavior:none; touch-action:none; }
+  #app { display:grid; grid-template-rows:auto auto 1fr 2fr auto; height:100dvh; gap:8px; padding:8px; }
+  #status { font-size:13px; color:var(--mut); display:flex; justify-content:space-between; gap:8px; }
+  #status .ok { color:#4ade80; } #status .bad { color:#f87171; }
+  .top { display:grid; grid-template-columns:3fr 2fr; gap:8px; }
+  .top button { font-size:16px; font-weight:600; padding:12px 6px; border:0; border-radius:14px; background:#1e3a5f; color:#fff; }
+  .top #link { background:#3f2e5f; }
+  .row { display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; }
+  .btn { background:var(--btn); border-radius:14px; display:flex; align-items:center; justify-content:center; font-weight:600; text-align:center; }
+  .btn.on { background:var(--act); }
+  #main { display:grid; grid-template-columns:1fr 56px; gap:8px; }
+  #clutch { flex-direction:column; gap:6px; font-size:20px; padding:12px; }
+  #clutch small { font-weight:400; font-size:13px; color:#bbb; }
+  #scroll { background:repeating-linear-gradient(0deg,#222 0 10px,#2a2a2a 10px 20px); border-radius:14px; display:flex; align-items:center; justify-content:center; writing-mode:vertical-rl; font-size:12px; color:var(--mut); }
+  #cfg { display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; font-size:14px; }
+  #cfg input[type=range] { width:100%; }
+  #cfg .line { grid-column:1/-1; display:flex; gap:12px; align-items:center; justify-content:space-between; }
+  button.small { font-size:14px; padding:8px 14px; border:0; border-radius:10px; background:var(--btn); color:var(--fg); }
+  .overlay { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; text-align:center; }
+  .overlay button { font-size:22px; padding:18px 36px; border:0; border-radius:14px; background:var(--act); color:#fff; }
+  .overlay .big { font-size:26px; font-weight:700; }
+  .overlay .arrow { font-size:72px; line-height:1; }
+  #bar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
+  #bar div { height:100%; width:0; background:var(--act); }
+  [hidden] { display:none !important; }
+  #cfg .line { flex-wrap:wrap; }
+  /* painel do teclado (fica no topo, acima do teclado do celular) */
+  #kb { position:fixed; top:0; left:0; right:0; z-index:10; background:#1b1b1b; padding:6px; border-bottom:1px solid #333; }
+  #kb .keys { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; }
+  #kb .keys button { padding:10px 0; font-size:15px; border:0; border-radius:8px; background:#2f2f2f; color:#eee; }
+  #kb .keys button.on { background:var(--act); }
+  /* teclado próprio (usado quando a página está girada via CSS) */
+  #kb.custom { top:auto; bottom:0; }
+  #kb.custom #kbIn, #kb:not(.custom) #kbKeys { display:none; }
+  #kbKeys { margin-top:5px; display:flex; flex-direction:column; gap:5px; }
+  #kbKeys .r { display:flex; gap:4px; }
+  #kbKeys button { flex:1; min-width:0; padding:11px 0; font-size:18px; border:0; border-radius:7px; background:#333; color:#eee; }
+  #kbKeys button.wide { flex:1.6; font-size:15px; } #kbKeys button.space { flex:5; }
+  #kbKeys button.on { background:var(--act); }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); max-width:90vw; z-index:20; background:#333; color:#fff;
+           padding:10px 14px; border-radius:10px; font-size:14px; text-align:center; }
+  #kbIn { display:block; width:100%; margin-top:6px; height:38px; resize:none; font-size:16px; border:0; border-radius:8px;
+          padding:8px; background:#111; color:#eee; -webkit-user-select:text; user-select:text; touch-action:auto; }
+  /* touchpad em tela cheia: só a área de toque */
+  body.full #app { grid-template-rows:1fr; padding:0; }
+  body.full #app > :not(#main):not(#kb), body.full #scroll { display:none; }
+  body.full #main { grid-template-columns:1fr; }
+  body.full #clutch { border-radius:0; background:#181818; }
+  body.full #clutch.on { background:#1d1d1d; }
+  body.full #clutch small { opacity:.5; }
+  #exitFull { position:fixed; top:10px; right:10px; width:44px; height:44px; border:0; border-radius:22px;
+              background:rgba(255,255,255,.08); color:#aaa; font-size:20px; display:none; z-index:5; }
+  body.full #exitFull { display:block; }
+  #rotate { position:fixed; top:10px; right:62px; width:44px; height:44px; border:0; border-radius:22px;
+            background:rgba(255,255,255,.08); color:#aaa; font-size:22px; display:none; z-index:5; }
+  body.full #rotate { display:block; }
+  /* plano B quando o navegador não deixa travar a orientação: gira a página via CSS */
+  body.rot #app  { position:fixed; top:0; left:100vw; width:100dvh; height:100vw; transform-origin:top left; transform:rotate(90deg); }
+  body.rot2 #app { position:fixed; top:100dvh; left:0; width:100dvh; height:100vw; transform-origin:top left; transform:rotate(-90deg); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="status"><span id="conn" class="bad">● desconectado</span><span id="rate"></span></div>
+  <div class="top"><button id="mode"></button><button id="link"></button></div>
+  <div class="row">
+    <div class="btn" data-b="left">Clique<br>esquerdo</div>
+    <div class="btn" data-b="middle">●</div>
+    <div class="btn" data-b="right">Clique<br>direito</div>
+  </div>
+  <div id="main">
+    <div class="btn" id="clutch"></div>
+    <div id="scroll">arraste p/ rolar</div>
+  </div>
+  <div id="cfg">
+    <span>Velocidade</span><input id="sens" type="range" min="2" max="60" value="18"><span id="sensv"></span>
+    <span>Aceleração</span><input id="acc" type="range" min="0" max="100" value="30"><span id="accv"></span>
+    <span>Anti-tremor</span><input id="dead" type="range" min="0" max="20" value="3"><span id="deadv"></span>
+    <div class="line">
+      <label><input id="always" type="checkbox"> Mover sem segurar</label>
+      <button class="small" id="recal">Recalibrar</button>
+      <button class="small" id="full">⛶ Tela cheia</button>
+      <button class="small" id="kbBtn">⌨ Teclado</button>
+    </div>
+  </div>
+  <div id="kb" hidden>
+    <div class="keys">
+      <button data-k="esc">Esc</button><button data-k="tab">Tab</button><button data-m="ctrl">Ctrl</button>
+      <button data-m="alt">Alt</button><button data-m="shift">Shift</button><button data-m="win">Win</button>
+      <button data-k="left">←</button><button data-k="up">↑</button><button data-k="down">↓</button>
+      <button data-k="right">→</button><button data-k="delete">Del</button><button id="kbClose">✕</button>
+    </div>
+    <div id="kbKeys"></div>
+    <textarea id="kbIn" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="digite aqui"></textarea>
+  </div>
+</div>
+<div id="toast" hidden></div>
+<button id="exitFull" title="Sair da tela cheia">✕</button>
+<button id="rotate" title="Virar a tela">⟳</button>
+
+<!-- tela inicial -->
+<div class="overlay" id="start">
+  <div class="big">Phone Mouse</div>
+  <div>Dois modos, alterne pelo botão azul no topo:<br><br>
+    🔦 <b>Apontador</b>: gire o pulso para apontar, como um laser.<br>
+    🖱️ <b>Mouse de mesa</b>: deslize o celular deitado na mesa.<br>
+    👆 <b>Touchpad</b>: passe o dedo na tela, como no notebook.</div>
+  <button id="go">Iniciar</button>
+  <div id="err" style="color:#f87171"></div>
+</div>
+
+<!-- calibração -->
+<div class="overlay" id="cal" hidden>
+  <div id="calStep" style="color:var(--mut)"></div>
+  <div class="arrow" id="calArrow"></div>
+  <div class="big" id="calTitle"></div>
+  <div id="calText"></div>
+  <div id="bar" hidden><div></div></div>
+  <button id="calBtn">Pronto</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const cfgIds = ["sens","acc","dead","always"];
+const PM_KEYS = ["pm-cfg", "pm-mode", "pm-map", "pm-map-desk"];
+
+// Wi-Fi e cabo usam endereços diferentes (cada um com seu armazenamento), então ao
+// alternar as configurações e calibrações viajam junto na URL (#cfg=...).
+if (location.hash.startsWith("#cfg=")) {
+  try {
+    const data = JSON.parse(decodeURIComponent(location.hash.slice(5)));
+    for (const k of PM_KEYS) if (data[k] != null) localStorage.setItem(k, data[k]);
+  } catch {}
+  history.replaceState(null, "", location.pathname);
+}
+
+// ---- configurações persistidas
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const saved = store.get("pm-cfg", {});
+for (const k of cfgIds) if (k in saved) $(k)[$(k).type === "checkbox" ? "checked" : "value"] = saved[k];
+function saveCfg() {
+  const o = {}; for (const k of cfgIds) o[k] = $(k).type === "checkbox" ? $(k).checked : $(k).value;
+  store.set("pm-cfg", o);
+  $("sensv").textContent = $("sens").value; $("accv").textContent = $("acc").value; $("deadv").textContent = $("dead").value;
+}
+cfgIds.forEach(k => $(k).addEventListener("input", saveCfg)); saveCfg();
+
+// estado do modo Mouse de mesa (precisa existir antes de applyMode())
+const desk = { v:{x:0, y:0}, dir:{x:0, y:0}, still:0 };
+function resetDesk() { desk.v.x = desk.v.y = 0; desk.dir.x = desk.dir.y = 0; desk.still = 0; }
+
+// ---- modos
+const MODES = {
+  air: {
+    label: "🔦 Modo: Apontador  ⇄",
+    storeKey: "pm-map",
+    clutch: 'SEGURE AQUI<small>e gire o pulso para apontar<br>1 toque = clique esquerdo · 2 toques = clique direito</small>',
+    steps: [
+      { key:"x", arrow:"➡️", title:"Gire para a DIREITA",
+        text:"Segure como controle remoto, tela para cima. Ao tocar em Pronto, aponte devagar o topo do celular da esquerda para a direita (girando o pulso, como uma lanterna) e pare." },
+      { key:"y", arrow:"⬆️", title:"Gire para CIMA",
+        text:"Ao tocar em Pronto, aponte devagar o topo do celular de baixo para cima (levante a ponta) e pare." },
+    ],
+  },
+  desk: {
+    label: "🖱️ Modo: Mouse de mesa  ⇄",
+    storeKey: "pm-map-desk",
+    clutch: 'SEGURE AQUI<small>e deslize o celular na mesa<br>1 toque = clique esquerdo · 2 toques = clique direito</small>',
+    steps: [
+      { key:"x", arrow:"➡️", title:"Deslize para a DIREITA",
+        text:"Deite o celular na mesa, com o topo apontando para o monitor. Ao tocar em Pronto, deslize uns 15 cm para a direita, num movimento firme, e pare." },
+      { key:"y", arrow:"⬆️", title:"Deslize para FRENTE",
+        text:"Ao tocar em Pronto, empurre o celular uns 15 cm para frente (em direção ao monitor) e pare." },
+    ],
+  },
+  pad: {
+    label: "👆 Modo: Touchpad  ⇄",
+    clutch: 'TOUCHPAD<small>1 dedo = mover · toque = clique · toque + toque e arrasta = selecionar<br>2 dedos: toque = direito, arrastar = rolar · 3 dedos = botão do meio<br>deslize da borda até o meio = abre/guarda o teclado</small>',
+    steps: null,   // não precisa de calibração
+  },
+};
+const ORDER = ["air", "desk", "pad"];
+const needsCal = () => MODES[mode].steps && !maps[mode];
+let mode = store.get("pm-mode", "air");
+if (!MODES[mode]) mode = "air";
+// mapeamento de eixos aprendido na calibração, por modo: { x:{axis,sign}, y:{axis,sign} }
+const maps = { air: store.get(MODES.air.storeKey, null), desk: store.get(MODES.desk.storeKey, null) };
+
+function applyMode() {
+  $("mode").textContent = MODES[mode].label;
+  $("clutch").innerHTML = MODES[mode].clutch;
+  $("recal").hidden = !MODES[mode].steps;
+  $("full").hidden = mode !== "pad";
+  resetDesk();
+}
+
+// ---- tela cheia (só no Touchpad)
+// orientação (só em tela cheia): vertical -> horizontal -> horizontal para o outro lado -> vertical
+const ORIENTS = ["portrait", "landscape-primary", "landscape-secondary"];
+const CSS_ROT = { "portrait": 0, "landscape-primary": 90, "landscape-secondary": -90 };
+let orient = "portrait", cssRot = 0;   // cssRot: graus girados via CSS (plano B)
+async function setOrient(o) {
+  orient = o;
+  cssRot = 0;
+  closeKeyboard();
+  try {
+    if (o === "portrait") screen.orientation?.unlock?.();
+    else {
+      // travar a orientação exige tela cheia de verdade: garante isso antes
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+      await screen.orientation.lock(o);
+    }
+  } catch (err) {
+    cssRot = CSS_ROT[o];   // navegador recusou travar: gira via CSS (e usa o teclado próprio)
+    toast("Seu navegador não deixou girar a tela de verdade (" + (err?.name || "sem suporte") + "). Girei só a página; o teclado será o da própria página.");
+    send({t:"log", msg:"orientation.lock falhou: " + (err?.name || "") + " " + (err?.message || "")});
+  }
+  document.body.classList.toggle("rot", cssRot === 90);
+  document.body.classList.toggle("rot2", cssRot === -90);
+}
+let toastT;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4500);
+}
+$("rotate").onclick = () => setOrient(ORIENTS[(ORIENTS.indexOf(orient) + 1) % ORIENTS.length]);
+
+function setFull(on) {
+  if (!on && orient !== "portrait") setOrient("portrait");
+  document.body.classList.toggle("full", on);
+  const fs = document.fullscreenElement;
+  if (on && !fs) document.documentElement.requestFullscreen?.({ navigationUI: "hide" }).catch(() => {});
+  if (!on && fs) document.exitFullscreen?.().catch(() => {});
+}
+$("full").onclick = () => setFull(true);
+$("exitFull").onclick = () => setFull(false);
+// botão "voltar" do Android sai da tela cheia do navegador -> sai do modo também
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) setFull(false); });
+$("mode").onclick = () => {
+  mode = ORDER[(ORDER.indexOf(mode) + 1) % ORDER.length];
+  store.set("pm-mode", mode);
+  applyMode();
+  navigator.vibrate?.(20);
+  if (needsCal()) calibrate();
+};
+applyMode();
+
+// ---- conexão: Wi-Fi <-> cabo USB
+const onCable = ["localhost", "127.0.0.1"].includes(location.hostname);
+$("link").textContent = onCable ? "🔌 Cabo  ⇄" : "📶 Wi-Fi  ⇄";
+$("link").onclick = async () => {
+  let info;
+  try { info = await (await fetch("/info")).json(); }
+  catch { alert("Não consegui falar com o PC."); return; }
+  let target;
+  if (onCable) {
+    const ip = info.primary || info.wifi.find(i => !i.startsWith("172.") && !i.startsWith("192.168.56.")) || info.wifi[0];
+    if (!ip) { alert("O PC não está em nenhuma rede Wi-Fi."); return; }
+    target = `https://${ip}:${info.port}/`;
+  } else {
+    if (!info.adb) { alert("O PC não tem o adb instalado.\nNo PC rode: winget install Google.PlatformTools\ne reinicie o servidor."); return; }
+    if (!info.device) { alert("Nenhum celular detectado no cabo.\n\n1. Ligue a 'Depuração USB' nas Opções do desenvolvedor\n2. Conecte o cabo e aceite 'Permitir depuração USB'\n3. Aguarde alguns segundos e tente de novo."); return; }
+    target = `https://localhost:${info.port}/`;
+  }
+  const data = {};
+  for (const k of PM_KEYS) { try { data[k] = localStorage.getItem(k); } catch {} }
+  location.href = target + "#cfg=" + encodeURIComponent(JSON.stringify(data));
+};
+
+// ---- WebSocket
+let ws;
+function connect() {
+  ws = new WebSocket(`wss://${location.host}/ws`);
+  ws.onopen  = () => {
+    $("conn").textContent = "● conectado"; $("conn").className = "ok";
+    fetch("/info").then(r => r.json()).then(i => { $("conn").textContent = "● " + i.name; document.title = "Phone Mouse · " + i.name; }).catch(() => {});
+  };
+  ws.onclose = () => { $("conn").textContent = "● desconectado"; $("conn").className = "bad"; setTimeout(connect, 1000); };
+}
+const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
+
+// ---- botões do mouse (pressionar/soltar => permite arrastar)
+document.querySelectorAll("[data-b]").forEach(el => {
+  const b = el.dataset.b;
+  el.addEventListener("pointerdown", e => { e.preventDefault(); el.classList.add("on"); send({t:"b", b, d:true}); navigator.vibrate?.(10); });
+  const up = () => { if (el.classList.contains("on")) { el.classList.remove("on"); send({t:"b", b, d:false}); } };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); el.addEventListener("pointerleave", up);
+});
+
+// ---- embreagem + toques: 1 toque = clique esquerdo, 2 toques = clique direito
+const TAP_MS = 220;        // toque mais curto que isso conta como clique
+const DOUBLE_MS = 300;     // janela para o segundo toque
+let holding = false, pressT = 0, tapTimer = null;
+const clutch = $("clutch");
+const click = b => { send({t:"b", b, d:true}); send({t:"b", b, d:false}); navigator.vibrate?.(b === "right" ? [15, 40, 15] : 15); };
+clutch.addEventListener("pointerdown", e => { e.preventDefault(); if (mode === "pad") return; holding = true; pressT = performance.now(); clutch.classList.add("on"); });
+const release = e => {
+  if (!holding || mode === "pad") return;
+  holding = false; clutch.classList.remove("on");
+  if (e.type !== "pointerup" || performance.now() - pressT > TAP_MS) return;   // foi movimento, não toque
+  if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; click("right"); }    // segundo toque
+  else tapTimer = setTimeout(() => { tapTimer = null; click("left"); }, DOUBLE_MS);
+};
+clutch.addEventListener("pointerup", release); clutch.addEventListener("pointercancel", release);
+
+// ---- modo Touchpad (na área grande)
+const EDGE_PX = 36;   // faixa da borda lateral onde começa o gesto que abre o teclado
+const pad = { fingers: new Map(), max: 0, t0: 0, moved: 0, scroll: 0,
+              lastTap: 0, dragArm: false, dragging: false, edge: null };
+// posição do toque no sentido que o usuário vê (considera página girada via CSS)
+function visPos(e) {
+  const r = clutch.getBoundingClientRect();
+  if (cssRot === 90)  return { x: e.clientY - r.top,    w: r.height, y: r.right - e.clientX, h: r.width };
+  if (cssRot === -90) return { x: r.bottom - e.clientY, w: r.height, y: e.clientX - r.left,  h: r.width };
+  return { x: e.clientX - r.left, w: r.width, y: e.clientY - r.top, h: r.height };
+}
+// gesto do teclado: na vertical, das bordas laterais; girada, das bordas de baixo/cima
+// (as laterais da tela girada são o topo/base físicos do celular, onde fica a barra de início do iPhone)
+function edgeAxis(v) { return cssRot ? { pos: v.y, len: v.h } : { pos: v.x, len: v.w }; }
+// impede que tocar no touchpad tire o foco (e feche o teclado do celular)
+clutch.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+clutch.addEventListener("pointerdown", e => {
+  if (mode !== "pad") return;
+  clutch.setPointerCapture(e.pointerId);
+  if (pad.fingers.size === 0) {
+    const now = performance.now();
+    Object.assign(pad, { max: 0, t0: now, moved: 0, scroll: 0, dragging: false, edge: null,
+                         dragArm: now - pad.lastTap < 300 });   // 2º toque logo após um toque = arrastar
+    const a = edgeAxis(visPos(e));
+    if (a.pos < EDGE_PX || a.pos > a.len - EDGE_PX) pad.edge = { p0: a.pos, len: a.len, open: false };
+  } else {
+    pad.edge = null; pad.dragArm = false;
+  }
+  pad.fingers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp });
+  pad.max = Math.max(pad.max, pad.fingers.size);
+  clutch.classList.add("on");
+});
+clutch.addEventListener("pointermove", e => {
+  if (mode !== "pad") return;
+  const f = pad.fingers.get(e.pointerId); if (!f) return;
+  let dx = e.clientX - f.x, dy = e.clientY - f.y;
+  const dt = Math.max(1, e.timeStamp - f.t);
+  f.x = e.clientX; f.y = e.clientY; f.t = e.timeStamp;
+  // página girada via CSS: converte o movimento físico para o eixo que o usuário vê
+  if (cssRot === 90) [dx, dy] = [dy, -dx];
+  else if (cssRot === -90) [dx, dy] = [-dy, dx];
+  pad.moved += Math.hypot(dx, dy);
+
+  if (pad.edge) {   // deslizando da borda: não mexe o cursor, só mede o gesto
+    const a = edgeAxis(visPos(e));
+    if (!pad.edge.open && Math.abs(a.pos - pad.edge.p0) > a.len * 0.35) { pad.edge.open = true; navigator.vibrate?.(25); }
+    return;
+  }
+  if (pad.fingers.size === 1 && pad.max === 1) {
+    if (pad.dragArm && !pad.dragging && pad.moved > 8) { pad.dragging = true; send({t:"b", b:"left", d:true}); navigator.vibrate?.(15); }
+    const speed = Math.hypot(dx, dy) / dt;                                  // px/ms
+    const gain = (+$("sens").value / 10) * (1 + (+$("acc").value / 100) * speed * 1.5);
+    send({t:"m", x: dx * gain, y: dy * gain});
+  } else if (pad.fingers.size === 2) {
+    pad.scroll += dy * 3 / 2;                     // média dos dois dedos; rolagem "natural"
+    const w = Math.trunc(pad.scroll);
+    if (w) { send({t:"s", y: w}); pad.scroll -= w; }
+  }
+});
+const padUp = e => {
+  if (mode !== "pad" || !pad.fingers.delete(e.pointerId)) return;
+  if (pad.fingers.size) return;
+  clutch.classList.remove("on");
+  if (pad.dragging) { send({t:"b", b:"left", d:false}); pad.dragging = false; pad.lastTap = 0; return; }
+  if (pad.edge) {   // mesmo gesto abre e guarda o teclado
+    if (pad.edge.open && e.type === "pointerup") kbOpen ? closeKeyboard() : openKeyboard();
+    return;
+  }
+  const quick = performance.now() - pad.t0 < 250 && pad.moved < 12;
+  if (e.type === "pointerup" && quick) {
+    click(pad.max >= 3 ? "middle" : pad.max === 2 ? "right" : "left");
+    pad.lastTap = pad.max === 1 ? performance.now() : 0;
+  }
+};
+clutch.addEventListener("pointerup", padUp); clutch.addEventListener("pointercancel", padUp);
+
+// ---- teclado: usa o teclado do próprio celular; o texto digitado é enviado ao PC
+const kb = $("kb"), kbIn = $("kbIn"), SENTINEL = " ";   // espaço "guarda" para detectar backspace
+let kbPrev = SENTINEL, composing = false, kbOpen = false, kbSeen = false;
+const mods = new Set();
+function clearMods() { mods.clear(); kb.querySelectorAll("[data-m]").forEach(b => b.classList.remove("on")); }
+function kbReset() { kbIn.value = SENTINEL; kbPrev = SENTINEL; try { kbIn.setSelectionRange(1, 1); } catch {} }
+function openKeyboard() {
+  const custom = cssRot !== 0;   // página girada via CSS: o teclado do celular não gira junto
+  kb.classList.toggle("custom", custom);
+  kb.hidden = false; kbOpen = true; kbSeen = false;
+  if (custom) { kbLayer = "abc"; kbShift = false; renderKeys(); }
+  else { kbReset(); kbIn.focus(); }
+  navigator.vibrate?.(20);
+}
+function closeKeyboard() { if (!kbOpen) return; kbOpen = false; kb.hidden = true; kbIn.blur(); clearMods(); }
+function sendKey(k, n = 1) { send({t:"key", k, n, mods:[...mods]}); clearMods(); }
+
+kbIn.addEventListener("compositionstart", () => composing = true);
+kbIn.addEventListener("compositionend", () => composing = false);
+// compara o texto antes/depois: funciona com corretor automático e sugestões do teclado
+kbIn.addEventListener("input", () => {
+  const v = kbIn.value;
+  let i = 0;
+  while (i < kbPrev.length && i < v.length && kbPrev[i] === v[i]) i++;
+  const del = kbPrev.length - i, add = v.slice(i);
+  kbPrev = v;
+  if (del) sendKey("backspace", del);
+  if (add) {
+    if (mods.size && add.length === 1 && add !== "\n") { send({t:"key", ch:add, mods:[...mods]}); clearMods(); }
+    else send({t:"txt", s:add});
+  }
+  if (!composing && (!v.startsWith(SENTINEL) || add.includes("\n") || v.length > 300)) kbReset();
+});
+kbIn.addEventListener("blur", () => setTimeout(() => { if (kbOpen && document.activeElement !== kbIn) closeKeyboard(); }, 50));
+// fechou o teclado do celular (botão voltar): fecha o painel também
+window.visualViewport?.addEventListener("resize", () => {
+  if (!kbOpen) return;
+  const ratio = visualViewport.height / window.innerHeight;
+  if (ratio < 0.8) kbSeen = true;
+  else if (kbSeen) closeKeyboard();
+});
+kb.querySelectorAll("button").forEach(b => {
+  b.addEventListener("touchstart", e => e.preventDefault(), { passive: false });   // mantém o teclado aberto
+  b.addEventListener("pointerdown", e => e.preventDefault());
+  b.addEventListener("pointerup", () => {
+    navigator.vibrate?.(10);
+    if (b.id === "kbClose") return closeKeyboard();
+    if (b.dataset.m) { const m = b.dataset.m; mods.has(m) ? mods.delete(m) : mods.add(m); b.classList.toggle("on", mods.has(m)); return; }
+    sendKey(b.dataset.k);
+  });
+});
+$("kbBtn").onclick = () => openKeyboard();
+
+// ---- teclado próprio (ABNT simplificado)
+const LAYERS = {
+  abc: [["q","w","e","r","t","y","u","i","o","p"],
+        ["a","s","d","f","g","h","j","k","l","ç"],
+        ["⇧","z","x","c","v","b","n","m","⌫"],
+        ["123",",","␣",".","⏎"]],
+  sym: [["1","2","3","4","5","6","7","8","9","0"],
+        ["@","#","$","%","&","*","-","+","(",")"],
+        ["á","é","í","ó","ú","ã","õ","â","ê","ô"],
+        ["à","!","?",":",";","/","_","=","\"","⌫"],
+        ["ABC",",","␣",".","⏎"]],
+};
+let kbLayer = "abc", kbShift = false;
+function renderKeys() {
+  const box = $("kbKeys"); box.innerHTML = "";
+  for (const row of LAYERS[kbLayer]) {
+    const r = document.createElement("div"); r.className = "r";
+    for (const k of row) {
+      const b = document.createElement("button");
+      b.dataset.key = k;
+      b.textContent = k === "␣" ? "espaço" : (kbShift && k.length === 1 ? k.toUpperCase() : k);
+      if (["⇧","⌫","123","ABC","⏎"].includes(k)) b.className = "wide";
+      if (k === "␣") b.className = "space";
+      if (k === "⇧" && kbShift) b.classList.add("on");
+      r.appendChild(b);
+    }
+    box.appendChild(r);
+  }
+}
+function customKey(k) {
+  navigator.vibrate?.(8);
+  if (k === "⇧") { kbShift = !kbShift; return renderKeys(); }
+  if (k === "123" || k === "ABC") { kbLayer = k === "123" ? "sym" : "abc"; return renderKeys(); }
+  if (k === "⌫") return sendKey("backspace");
+  if (k === "⏎") return sendKey("enter");
+  let ch = k === "␣" ? " " : k;
+  if (kbShift) { ch = ch.toUpperCase(); kbShift = false; renderKeys(); }
+  if (mods.size && ch !== " ") { send({t:"key", ch, mods:[...mods]}); clearMods(); }
+  else send({t:"txt", s:ch});
+}
+const kbKeys = $("kbKeys");
+kbKeys.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+let keyStart = null;
+kbKeys.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  kbKeys.setPointerCapture?.(e.pointerId);
+  const b = e.target.closest?.("button");
+  b?.classList.add("on");
+  keyStart = { v: visPos(e), b };
+});
+kbKeys.addEventListener("pointerup", e => {
+  if (!keyStart) return;
+  const st = keyStart; keyStart = null;
+  st.b?.classList.remove("on");
+  const v = visPos(e);
+  if (Math.hypot(v.x - st.v.x, v.y - st.v.y) < 15) { if (st.b) customKey(st.b.dataset.key); return; }   // toque = tecla
+  // arraste: é o mesmo gesto de puxar o teclado, começando na borda que ele cobre -> guarda
+  const a0 = edgeAxis(st.v), a1 = edgeAxis(v);
+  const nearEdge = a0.pos < 70 || a0.pos > a0.len - 70;
+  if (nearEdge && Math.abs(a1.pos - a0.pos) > a0.len * 0.3) { closeKeyboard(); navigator.vibrate?.(25); }
+});
+kbKeys.addEventListener("pointercancel", () => { keyStart?.b?.classList.remove("on"); keyStart = null; });
+
+// ---- rolagem por arraste
+let lastY = null, scrollAcc = 0;
+const sc = $("scroll");
+sc.addEventListener("pointerdown", e => { lastY = e.clientY; sc.setPointerCapture(e.pointerId); });
+sc.addEventListener("pointermove", e => {
+  if (lastY === null) return;
+  scrollAcc += (lastY - e.clientY) * 4; lastY = e.clientY;
+  if (Math.abs(scrollAcc) >= 1) { send({t:"s", y: Math.trunc(scrollAcc)}); scrollAcc -= Math.trunc(scrollAcc); }
+});
+sc.addEventListener("pointerup", () => lastY = null);
+
+// ---- sensores
+let lastT = null, n = 0, tick = performance.now();
+let calibrating = null;   // { samples: [...] } enquanto grava um gesto
+const isActive = () => holding || $("always").checked;
+
+function onMotion(e) {
+  const now = e.timeStamp;
+  const dt = lastT === null ? 0 : Math.min((now - lastT) / 1000, 0.1);
+  lastT = now; n++;
+  if (!dt) return;
+
+  if (calibrating) {
+    const r = e.rotationRate || {}, a = e.acceleration || {};
+    calibrating.samples.push({ dt,
+      rot: { alpha: r.alpha || 0, beta: r.beta || 0, gamma: r.gamma || 0 },
+      acc: { x: a.x || 0, y: a.y || 0, z: a.z || 0 } });
+    return;
+  }
+  const map = maps[mode];
+  if (!map) return;
+  if (mode === "air") airMove(e, dt, map); else deskMove(e, dt, map);
+}
+
+// Apontador: velocidade angular (graus/s) -> pixels
+function airMove(e, dt, map) {
+  const r = e.rotationRate; if (!r || !isActive()) return;
+  const wx = map.x.sign * (r[map.x.axis] || 0);
+  const wy = map.y.sign * (r[map.y.axis] || 0);
+  const speed = Math.hypot(wx, wy);
+  if (speed < +$("dead").value) return;
+  const gain = +$("sens").value * (1 + (+$("acc").value / 100) * speed / 90);
+  send({t:"m", x: wx * dt * gain, y: wy * dt * gain});
+}
+
+// Mouse de mesa: integra a aceleração linear (m/s²) em velocidade (m/s), com
+// truques para conter o desvio: zera quando o celular para e bloqueia o "ricochete"
+// (a frenagem no fim do movimento não pode empurrar o cursor de volta).
+function deskMove(e, dt, map) {
+  const a = e.acceleration;
+  if (!a || a.x == null) { $("rate").textContent = "sem acelerômetro linear"; return; }
+  if (!isActive()) { resetDesk(); return; }
+  const acc = { x: map.x.sign * (a[map.x.axis] || 0), y: map.y.sign * (a[map.y.axis] || 0) };
+  const th = 0.08 + +$("dead").value * 0.04;              // m/s² abaixo disso = ruído
+
+  desk.still = Math.hypot(acc.x, acc.y) < th ? desk.still + dt : 0;
+  if (desk.still > 0.06) { resetDesk(); return; }          // parado => velocidade zero
+
+  for (const k of ["x", "y"]) {
+    if (Math.abs(acc[k]) > th) desk.v[k] += acc[k] * dt;
+    desk.v[k] *= Math.exp(-dt * 2);                         // atrito
+    if (!desk.dir[k] && Math.abs(desk.v[k]) > 0.02) desk.dir[k] = Math.sign(desk.v[k]);
+    if (desk.dir[k] && desk.v[k] * desk.dir[k] < 0) desk.v[k] = 0;   // anti-ricochete
+  }
+  const speed = Math.hypot(desk.v.x, desk.v.y);
+  const gain = +$("sens").value * 250 * (1 + (+$("acc").value / 100) * speed / 0.3);
+  send({t:"m", x: desk.v.x * dt * gain, y: desk.v.y * dt * gain});
+}
+setInterval(() => { const t = performance.now(); $("rate").textContent = `sensor: ${Math.round(n * 1000 / (t - tick))} Hz`; n = 0; tick = t; }, 1000);
+
+// ---- calibração
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function recordGesture(ms) {
+  return new Promise(resolve => {
+    calibrating = { samples: [] };
+    const bar = $("bar"), fill = bar.firstElementChild, t0 = performance.now();
+    bar.hidden = false;
+    const iv = setInterval(() => {
+      const p = (performance.now() - t0) / ms;
+      fill.style.width = Math.min(100, p * 100) + "%";
+      if (p >= 1) { clearInterval(iv); bar.hidden = true; const s = calibrating.samples; calibrating = null; resolve(s); }
+    }, 30);
+  });
+}
+
+// Descobre qual eixo do sensor corresponde ao gesto e em que sentido.
+function analyze(samples, exclude) {
+  if (mode === "air") {
+    // apontador: o eixo que mais girou (ângulo integrado)
+    const ang = { alpha:0, beta:0, gamma:0 };
+    for (const s of samples) for (const k in ang) ang[k] += s.rot[k] * s.dt;
+    const best = Object.keys(ang).filter(k => k !== exclude).sort((a, b) => Math.abs(ang[b]) - Math.abs(ang[a]))[0];
+    return Math.abs(ang[best]) < 10 ? null : { axis: best, sign: Math.sign(ang[best]) };
+  }
+  // mesa: o eixo com maior pico de aceleração; o sentido é o do primeiro pico
+  // (ao começar a deslizar, a aceleração aponta para onde o celular vai)
+  const peak = { x:0, y:0, z:0 };
+  for (const s of samples) for (const k in peak) peak[k] = Math.max(peak[k], Math.abs(s.acc[k]));
+  const best = Object.keys(peak).filter(k => k !== exclude).sort((a, b) => peak[b] - peak[a])[0];
+  if (peak[best] < 0.6) return null;
+  const first = samples.find(s => Math.abs(s.acc[best]) > peak[best] * 0.4);
+  return { axis: best, sign: Math.sign(first.acc[best]) };
+}
+
+let calRunning = false;
+async function calibrate() {
+  if (calRunning || !MODES[mode].steps) return;
+  calRunning = true;
+  const ov = $("cal"); ov.hidden = false;
+  const steps = MODES[mode].steps, result = {};
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    $("calStep").textContent = `Calibração ${mode === "air" ? "do Apontador" : "do Mouse de mesa"} · ${i + 1}/${steps.length}`;
+    $("calArrow").textContent = s.arrow; $("calTitle").textContent = s.title; $("calText").textContent = s.text;
+    $("calBtn").hidden = false;
+    await new Promise(r => $("calBtn").onclick = r);
+    $("calBtn").hidden = true;
+    $("calText").textContent = mode === "air" ? "Gire agora…" : "Deslize agora…";
+    const found = analyze(await recordGesture(2000), s.key === "y" ? result.x.axis : null);
+    if (!found) {
+      $("calText").textContent = "Não detectei movimento suficiente. Tente de novo, com um gesto mais firme.";
+      await sleep(1800); i--; continue;
+    }
+    result[s.key] = found;
+    navigator.vibrate?.(30);
+  }
+  // Y positivo na tela = para baixo; o gesto gravado foi para cima/frente
+  result.y.sign = -result.y.sign;
+  maps[mode] = result; store.set(MODES[mode].storeKey, result);
+  resetDesk();
+  $("calArrow").textContent = "✅"; $("calTitle").textContent = "Calibrado!";
+  $("calText").textContent = "Segure o botão grande e mova o celular.";
+  await sleep(1500);
+  ov.hidden = true;
+  calRunning = false;
+}
+$("recal").onclick = calibrate;
+
+$("go").onclick = async () => {
+  try {
+    if (typeof DeviceMotionEvent?.requestPermission === "function") {   // iOS
+      if (await DeviceMotionEvent.requestPermission() !== "granted") throw new Error("Permissão de movimento negada.");
+    }
+    if (!window.isSecureContext) throw new Error("Precisa de HTTPS para ler os sensores.");
+    window.addEventListener("devicemotion", onMotion);
+    connect();
+    navigator.wakeLock?.request("screen").catch(() => {});
+    $("start").remove();
+    if (needsCal()) calibrate();
+  } catch (err) { $("err").textContent = err.message; }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# gerados automaticamente em cada PC
+cert.pem
+key.pem
+icon.ico
+static/icon.png
+phone-mouse.log
+__pycache__/
+
+# pessoal: contém o tópico secreto de notificação
+config.json
+
+# ferramentas baixadas / pacotes
+platform-tools/
+dist/
+*.zip
