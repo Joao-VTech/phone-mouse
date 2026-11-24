@@ -20,6 +20,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from aiohttp import WSMsgType, web
 
@@ -78,6 +79,9 @@ def load_config() -> dict:
         changed = True
     if not cfg.get("local_token"):   # só o próprio PC conhece: usado para compartilhar arquivos
         cfg["local_token"] = secrets.token_hex(16)
+        changed = True
+    if not cfg.get("session_key"):   # cookie dos celulares pareados (trocado em "Gerar novo PIN")
+        cfg["session_key"] = secrets.token_urlsafe(32)
         changed = True
     if changed:
         CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -233,6 +237,7 @@ def physical_addresses() -> list[tuple[str, str]]:
 
 
 CA_CERT, CA_KEY = BASE / "ca.pem", BASE / "ca-key.pem"
+CA_DAYS = 730   # validade da autoridade local (2 anos): limita o estrago se a chave um dia vazar
 # a autoridade local só vale para endereços de rede local: mesmo copiada, não serve para sites da internet
 _LOCAL_NETS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10"]
 
@@ -251,19 +256,26 @@ def ensure_ca():
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
+    now = datetime.datetime.now(datetime.timezone.utc)
     if CA_CERT.exists() and CA_KEY.exists():
-        return (x509.load_pem_x509_certificate(CA_CERT.read_bytes()),
-                serialization.load_pem_private_key(CA_KEY.read_bytes(), password=None))
+        try:
+            cert = x509.load_pem_x509_certificate(CA_CERT.read_bytes())
+            # vale no máximo CA_DAYS e é refeita perto de vencer (antigas de 10 anos também são trocadas)
+            if (cert.not_valid_after_utc - now > datetime.timedelta(days=30)
+                    and cert.not_valid_after_utc - cert.not_valid_before_utc <= datetime.timedelta(days=CA_DAYS + 1)):
+                return cert, serialization.load_pem_private_key(CA_KEY.read_bytes(), password=None)
+            print("[cert] autoridade local antiga ou perto de vencer: criando uma nova (confie de novo no celular)")
+        except Exception:
+            pass
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"Phone Mouse CA ({pc_name()})"[:64]),
                       x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Phone Mouse")])
-    now = datetime.datetime.now(datetime.timezone.utc)
     permitted = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_network(n)) for n in _LOCAL_NETS]
     cert = (x509.CertificateBuilder()
             .subject_name(name).issuer_name(name).public_key(key.public_key())
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - datetime.timedelta(days=1))
-            .not_valid_after(now + datetime.timedelta(days=3650))
+            .not_valid_after(now + datetime.timedelta(days=CA_DAYS))
             .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
             .add_extension(x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
                                          data_encipherment=False, key_agreement=False, key_cert_sign=True,
@@ -293,8 +305,9 @@ def ensure_cert(ips: list[str]) -> bool:
             cur = x509.load_pem_x509_certificate(CERT.read_bytes())
             san = cur.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
             have = {str(i) for i in san.get_values_for_type(x509.IPAddress)}
-            if (cur.issuer == ca_cert.subject and set(ips) <= have
-                    and cur.not_valid_after_utc - now > datetime.timedelta(days=30)):
+            cur.verify_directly_issued_by(ca_cert)   # assinado pela autoridade atual (não por uma antiga)
+            if (set(ips) <= have and cur.not_valid_after_utc - now > datetime.timedelta(days=30)
+                    and cur.not_valid_after_utc <= ca_cert.not_valid_after_utc):
                 return False
         except Exception:
             pass
@@ -305,7 +318,8 @@ def ensure_cert(ips: list[str]) -> bool:
             .issuer_name(ca_cert.subject).public_key(key.public_key())
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - datetime.timedelta(days=1))
-            .not_valid_after(now + datetime.timedelta(days=395))   # total < 398 dias: limite de iPhone/Chrome
+            # total < 398 dias (limite de iPhone/Chrome) e nunca além da validade da autoridade
+            .not_valid_after(min(now + datetime.timedelta(days=395), ca_cert.not_valid_after_utc))
             .add_extension(x509.SubjectAlternativeName(san), critical=False)
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=True,
@@ -429,8 +443,9 @@ def _stop_server() -> None:
 
 
 def uninstall(admin_part: bool = False) -> None:
-    """Chamado pelo desinstalador: encerra o servidor e remove atalhos, tarefa agendada e firewall.
-    As configurações (PIN, tópico de notificação) ficam em %LOCALAPPDATA%\\Phone Mouse."""
+    """Chamado pelo desinstalador: encerra o servidor e remove atalhos, tarefa agendada, firewall e a
+    autoridade local (chave e certificados). As configurações (PIN, tópico de notificação) ficam em
+    %LOCALAPPDATA%\\Phone Mouse. Sem a chave, a autoridade que ficou nos celulares não assina mais nada."""
     if admin_part:   # parte que precisa de administrador (roda elevada)
         subprocess.run([SCHTASKS, "/end", "/tn", TASK], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         subprocess.run([SCHTASKS, "/delete", "/tn", TASK, "/f"], capture_output=True,
@@ -457,6 +472,11 @@ def uninstall(admin_part: bool = False) -> None:
                             "Start-Process -FilePath $env:EXE -ArgumentList $env:ARGS -Verb RunAs -Wait -WindowStyle Hidden"],
                            env=dict(os.environ, EXE=exe, ARGS=args), creationflags=subprocess.CREATE_NO_WINDOW)
     _stop_server()
+    for f in (CA_KEY, CA_CERT, KEY, CERT):
+        try:
+            f.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def install_admin() -> None:
@@ -761,12 +781,36 @@ async def index(_req):
 
 
 # ---------------------------------------------------------------- PIN de acesso
-MAX_FAILS, BLOCK_SECONDS = 5, 60
-_fails: dict[str, list] = {}   # ip -> [erros seguidos, bloqueado até]
+# O PIN só serve para parear: o celular manda o PIN no corpo de um POST /pair (nunca na URL, para não
+# ficar em histórico nem em logs) e recebe um cookie de sessão HttpOnly. Todo o resto usa o cookie.
+MAX_FAILS = 5                        # PINs errados seguidos por aparelho antes de bloquear
+BLOCK_BASE, BLOCK_MAX = 60, 3600     # bloqueio progressivo por aparelho: 1 min, 2, 4, 8... até 1 h
+GLOBAL_WINDOW, GLOBAL_MAX = 60, 10   # no máximo 10 PINs errados por minuto somando todos os aparelhos
+ROTATE_AFTER = 30                    # 30 PINs errados (somando todos) sem nenhum acerto: troca o PIN sozinho
+SESSION_COOKIE = "pm_session"
+_fails: dict[str, list] = {}         # ip -> [erros seguidos, bloqueios já aplicados, bloqueado até]
+_recent_fails: list[float] = []      # horários dos últimos erros (todos os aparelhos)
+_total_fails = {"n": 0}              # erros desde o último acerto ou troca de PIN
 
 
 def current_pin() -> str:
     return str(load_config()["pin"])
+
+
+def session_key() -> str:
+    return str(load_config()["session_key"])
+
+
+def is_paired(req) -> bool:
+    """O celular já pareou com o PIN atual (tem o cookie de sessão válido)?"""
+    tok = req.cookies.get(SESSION_COOKIE, "")
+    return bool(tok) and secrets.compare_digest(tok.encode(), session_key().encode())
+
+
+def _reset_pin_counters() -> None:
+    _fails.clear()
+    _recent_fails.clear()
+    _total_fails["n"] = 0
 
 
 def pin_url(base: str) -> str:
@@ -774,19 +818,38 @@ def pin_url(base: str) -> str:
     return f"{base}/#pin={current_pin()}"
 
 
-def check_pin(req) -> int:
-    """200 = ok, 401 = PIN errado/ausente, 429 = muitas tentativas (aguarde)."""
-    ip = req.remote or "?"
-    fails, until = _fails.get(ip, [0, 0.0])
-    if until > time.time():
+def check_pin(ip: str, pin: str) -> int:
+    """200 = ok, 401 = PIN errado/ausente, 429 = muitas tentativas (aguarde).
+    Limites: por aparelho (bloqueio progressivo) e no total (trocar de IP não ajuda quem tenta adivinhar)."""
+    now = time.time()
+    fails, blocks, until = _fails.get(ip, [0, 0, 0.0])
+    if until > now:
         return 429
-    if secrets.compare_digest(str(req.query.get("pin", "")), current_pin()):
+    _recent_fails[:] = [t for t in _recent_fails if now - t < GLOBAL_WINDOW]
+    if len(_recent_fails) >= GLOBAL_MAX:
+        return 429
+    pin = "".join(c for c in str(pin) if c in "0123456789")[:6]
+    if len(pin) == 6 and secrets.compare_digest(pin, current_pin()):
         _fails.pop(ip, None)
+        _total_fails["n"] = 0
         return 200
+    _recent_fails.append(now)
+    _total_fails["n"] += 1
     fails += 1
-    _fails[ip] = [0, time.time() + BLOCK_SECONDS] if fails >= MAX_FAILS else [fails, 0.0]
     if fails >= MAX_FAILS:
-        print(f"[pin] {ip} bloqueado por {BLOCK_SECONDS}s após {MAX_FAILS} PINs errados")
+        secs = min(BLOCK_BASE * 2 ** blocks, BLOCK_MAX)
+        _fails[ip] = [0, blocks + 1, now + secs]
+        print(f"[pin] {ip} bloqueado por {secs}s após {MAX_FAILS} PINs errados")
+    else:
+        _fails[ip] = [fails, blocks, 0.0]
+    if _total_fails["n"] >= ROTATE_AFTER:
+        # alguém está tentando adivinhar: troca o PIN (celulares já pareados continuam conectados)
+        cfg = load_config()
+        cfg["pin"] = new_pin()
+        save_config(cfg)
+        _reset_pin_counters()
+        print(f"[pin] {ROTATE_AFTER} PINs errados: PIN trocado automaticamente")
+        toast_pc("Muitos PINs errados no celular. Por segurança o PIN foi trocado (veja no ícone da bandeja).")
     return 401
 
 
@@ -795,10 +858,12 @@ loop_ref: dict = {}
 
 
 def regenerate_pin() -> str:
-    """Novo PIN: desconecta todos os celulares (eles pedem o PIN de novo)."""
+    """Novo PIN: desconecta todos os celulares e invalida os pareamentos (eles pedem o PIN de novo)."""
     cfg = load_config()
     cfg["pin"] = new_pin()
+    cfg["session_key"] = secrets.token_urlsafe(32)
     save_config(cfg)
+    _reset_pin_counters()
     loop = loop_ref.get("loop")
     if loop:
         for ws in list(active_ws):
@@ -858,9 +923,8 @@ def unique_path(path: Path) -> Path:
 
 async def upload(req):
     """Celular -> PC: o corpo da requisição é o arquivo; salva em Downloads\\Phone Mouse."""
-    st = check_pin(req)
-    if st != 200:
-        return web.json_response({"error": "pin"}, status=st)
+    if not is_paired(req):
+        return web.json_response({"error": "pin"}, status=401)
     RECEIVED_DIR.mkdir(parents=True, exist_ok=True)
     dest = unique_path(RECEIVED_DIR / safe_filename(req.query.get("name", "arquivo")))
     part = dest.with_name(dest.name + ".part")
@@ -913,7 +977,9 @@ def share_paths(paths) -> list[str]:
 
 async def share(req):
     """Só o próprio PC (com o token local) pode adicionar arquivos à lista."""
-    if not secrets.compare_digest(str(req.query.get("token", "")), str(load_config()["local_token"])):
+    if (req.remote not in ("127.0.0.1", "::1")
+            or not secrets.compare_digest(req.headers.get("X-Token", "").encode(),
+                                          str(load_config()["local_token"]).encode())):
         return web.json_response({"error": "token"}, status=403)
     data = await req.json()
     added = share_paths(data.get("paths", []))
@@ -921,16 +987,14 @@ async def share(req):
 
 
 async def files_list(req):
-    st = check_pin(req)
-    if st != 200:
-        return web.json_response({"error": "pin"}, status=st)
+    if not is_paired(req):
+        return web.json_response({"error": "pin"}, status=401)
     return web.json_response([{k: f[k] for k in ("id", "name", "size", "t")} for f in shared_files])
 
 
 async def file_get(req):
-    st = check_pin(req)
-    if st != 200:
-        return web.json_response({"error": "pin"}, status=st)
+    if not is_paired(req):
+        return web.json_response({"error": "pin"}, status=401)
     item = next((f for f in shared_files if f["id"] == req.match_info["fid"]), None)
     if not item or not Path(item["path"]).is_file():
         return web.json_response({"error": "não encontrado"}, status=404)
@@ -948,8 +1012,8 @@ def send_cli(paths: list[str]) -> None:
     else:
         body = json.dumps({"paths": files}).encode("utf-8")
         req = urllib.request.Request(
-            f"https://127.0.0.1:{PORT}/share?token={load_config()['local_token']}", data=body, method="POST",
-            headers={"Content-Type": "application/json"})
+            f"https://127.0.0.1:{PORT}/share", data=body, method="POST",
+            headers={"Content-Type": "application/json", "X-Token": str(load_config()["local_token"])})
         try:
             urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=10).close()
         except OSError:
@@ -962,9 +1026,8 @@ def send_cli(paths: list[str]) -> None:
 
 
 async def info(req):
-    st = check_pin(req)
-    if st != 200:
-        return web.json_response({"error": "pin"}, status=st)
+    if not is_paired(req):
+        return web.json_response({"error": "pin"}, status=401)
     return web.json_response({"port": PORT, "name": pc_name(), "primary": primary_ip(),
                               "wifi": local_ips(), **usb_state})
 
@@ -1071,9 +1134,12 @@ clients = {"n": 0}   # celulares conectados agora
 async def ws_handler(req):
     ws = web.WebSocketResponse(heartbeat=10)
     await ws.prepare(req)
-    st = check_pin(req)
-    if st != 200:   # 4001 = PIN errado, 4029 = aguarde
-        await ws.close(code=4001 if st == 401 else 4029, message=b"pin")
+    origin = req.headers.get("Origin")
+    if origin and urlparse(origin).netloc != req.host:   # outra página tentando usar o cookie do celular
+        await ws.close(code=4003, message=b"origin")
+        return ws
+    if not is_paired(req):   # 4001 = precisa parear (PIN)
+        await ws.close(code=4001, message=b"pin")
         return ws
     active_ws.add(ws)
     clients["n"] += 1
@@ -1106,9 +1172,34 @@ async def ws_handler(req):
     return ws
 
 
+async def pair(req):
+    """Pareia o celular: recebe o PIN no corpo (JSON) e devolve o cookie de sessão."""
+    try:
+        data = await req.json()
+    except Exception:
+        data = {}
+    st = check_pin(req.remote or "?", str(data.get("pin", "")) if isinstance(data, dict) else "")
+    if st != 200:
+        return web.json_response({"error": "pin"}, status=st)
+    resp = web.json_response({"ok": True})
+    resp.set_cookie(SESSION_COOKIE, session_key(), max_age=400 * 86400, path="/",
+                    secure=True, httponly=True, samesite="Strict")
+    return resp
+
+
+@web.middleware
+async def local_only(req, handler):
+    """Só atende a rede local (e o cabo USB, que chega como 127.0.0.1): nunca a internet."""
+    if not _is_local_ip(req.remote or ""):
+        print(f"[rede] recusado: {req.remote} não é da rede local")
+        return web.Response(status=403, text="Phone Mouse: só aceita conexões da rede local.")
+    return await handler(req)
+
+
 def build_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[local_only])
     app.router.add_get("/", index)
+    app.router.add_post("/pair", pair)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/info", info)
     app.router.add_get("/manifest.json", manifest)
