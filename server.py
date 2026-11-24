@@ -23,11 +23,26 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
-PORT = 8443
-BASE = Path(__file__).resolve().parent
+PORT = int(os.environ.get("PHONE_MOUSE_PORT", "8443"))   # variável só para testes
+FROZEN = bool(getattr(sys, "frozen", False))   # rodando como PhoneMouse.exe (instalador)
+APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+RES = Path(getattr(sys, "_MEIPASS", APP_DIR))   # arquivos que vêm com o programa (static/)
+# dados do usuário: na pasta do projeto (modo script) ou em %LOCALAPPDATA%\Phone Mouse (instalado)
+BASE = (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Phone Mouse") if FROZEN else APP_DIR
+BASE.mkdir(parents=True, exist_ok=True)
 CERT, KEY = BASE / "cert.pem", BASE / "key.pem"
 CONFIG = BASE / "config.json"
-ICON_PNG, ICON_ICO = BASE / "static" / "icon.png", BASE / "icon.ico"
+ICON_PNG = (BASE / "icon.png") if FROZEN else (APP_DIR / "static" / "icon.png")
+ICON_ICO = BASE / "icon.ico"
+# instalado pela 1ª vez num PC que já usava a versão em script: aproveita PIN, tópico e certificado
+if FROZEN and not CONFIG.exists():
+    _legacy = Path.home() / "phone-mouse"
+    for _name in ("config.json", "cert.pem", "key.pem"):
+        try:
+            if (_legacy / _name).is_file():
+                shutil.copy2(_legacy / _name, BASE / _name)
+        except OSError:
+            pass
 STARTUP_LNK = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup/Phone Mouse.lnk"
 
 # sem console (pythonw): manda as mensagens para um arquivo de log
@@ -273,6 +288,14 @@ def pythonw() -> str:
     return str(p if p.exists() else sys.executable)
 
 
+def launch_cmd(*args: str) -> tuple[str, str]:
+    """(programa, argumentos) que abrem este app: o PhoneMouse.exe ou pythonw + server.py."""
+    extra = " ".join(args)
+    if FROZEN:
+        return str(Path(sys.executable).resolve()), extra
+    return pythonw(), f'"{APP_DIR / "server.py"}" {extra}'.strip()
+
+
 def is_admin() -> bool:
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
@@ -296,7 +319,7 @@ def make_shortcut(lnk: Path) -> None:
     if task_exists():
         tgt, args, style = SCHTASKS, f"/run /tn {TASK}", 7    # 7 = minimizado (sem piscar janela)
     else:
-        tgt, args, style = pythonw(), f'"{BASE / "server.py"}"', 1
+        (tgt, args), style = launch_cmd(), 1
     write_lnk(lnk, tgt, args, style)
 
 
@@ -307,7 +330,7 @@ def ensure_sendto() -> None:
     """Botão direito num arquivo -> Enviar para -> Phone Mouse (celular)."""
     if not SENDTO_LNK.exists():
         try:
-            write_lnk(SENDTO_LNK, pythonw(), f'"{BASE / "server.py"}" --send', 1)
+            write_lnk(SENDTO_LNK, *launch_cmd("--send"), 1)
         except (OSError, subprocess.SubprocessError) as e:
             print(f"[arquivos] não consegui criar o 'Enviar para': {e}")
 
@@ -316,17 +339,55 @@ def write_lnk(lnk: Path, tgt: str, args: str, style: int) -> None:
     ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);"
           "$s.TargetPath=$env:TGT;$s.Arguments=$env:ARGS;$s.WorkingDirectory=$env:WD;"
           "$s.IconLocation=$env:ICO;$s.WindowStyle=[int]$env:STYLE;$s.Description='Phone Mouse';$s.Save()")
-    env = dict(os.environ, LNK=str(lnk), TGT=tgt, ARGS=args, WD=str(BASE), ICO=str(ICON_ICO), STYLE=str(style))
+    env = dict(os.environ, LNK=str(lnk), TGT=tgt, ARGS=args, WD=str(APP_DIR), ICO=str(ICON_ICO), STYLE=str(style))
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, check=True,
                    creationflags=subprocess.CREATE_NO_WINDOW)
+
+
+def _stop_server() -> None:
+    ps = ("Get-NetTCPConnection -LocalPort $env:PORT -State Listen -EA SilentlyContinue |"
+          " ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -EA SilentlyContinue }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=dict(os.environ, PORT=str(PORT)),
+                   creationflags=subprocess.CREATE_NO_WINDOW)
+
+
+def uninstall(admin_part: bool = False) -> None:
+    """Chamado pelo desinstalador: encerra o servidor e remove atalhos, tarefa agendada e firewall.
+    As configurações (PIN, tópico de notificação) ficam em %LOCALAPPDATA%\\Phone Mouse."""
+    if admin_part:   # parte que precisa de administrador (roda elevada)
+        subprocess.run([SCHTASKS, "/end", "/tn", TASK], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run([SCHTASKS, "/delete", "/tn", TASK, "/f"], capture_output=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Remove-NetFirewallRule -DisplayName 'Phone Mouse' -EA SilentlyContinue"],
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+        _stop_server()
+        return
+    for lnk in (STARTUP_LNK, SENDTO_LNK, desktop_dir() / "Phone Mouse.lnk"):
+        try:
+            lnk.unlink(missing_ok=True)
+        except OSError:
+            pass
+    has_rule = subprocess.run(["powershell", "-NoProfile", "-Command",
+                               "if (Get-NetFirewallRule -DisplayName 'Phone Mouse' -EA SilentlyContinue) { exit 1 }"],
+                              creationflags=subprocess.CREATE_NO_WINDOW).returncode == 1
+    if task_exists() or has_rule:
+        exe, args = launch_cmd("--uninstall-admin")
+        if is_admin():
+            uninstall(admin_part=True)
+        else:   # pede administrador uma vez e espera terminar
+            subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Start-Process -FilePath $env:EXE -ArgumentList $env:ARGS -Verb RunAs -Wait -WindowStyle Hidden"],
+                           env=dict(os.environ, EXE=exe, ARGS=args), creationflags=subprocess.CREATE_NO_WINDOW)
+    _stop_server()
 
 
 def install_admin() -> None:
     """Cria a tarefa agendada que roda o servidor como administrador.
     Precisa de UAC uma única vez; depois o atalho abre como admin sem perguntar."""
     if not is_admin():
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", pythonw(),
-                                            f'"{BASE / "server.py"}" --install-admin', str(BASE), 1)
+        exe, args = launch_cmd("--install-admin")
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, args, str(APP_DIR), 1)
         return
     ps = ("$a=New-ScheduledTaskAction -Execute $env:TGT -Argument $env:ARGS -WorkingDirectory $env:WD;"
           "$p=New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType Interactive -RunLevel Highest;"
@@ -340,7 +401,8 @@ def install_admin() -> None:
           # encerra o servidor antigo (sem admin) que está ocupando a porta
           "Get-NetTCPConnection -LocalPort $env:PORT -State Listen -EA SilentlyContinue |"
           " ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -EA SilentlyContinue }")
-    env = dict(os.environ, TGT=pythonw(), ARGS=f'"{BASE / "server.py"}"', WD=str(BASE), TASK=TASK, PORT=str(PORT))
+    exe, args = launch_cmd()
+    env = dict(os.environ, TGT=exe, ARGS=args, WD=str(APP_DIR), TASK=TASK, PORT=str(PORT))
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, check=True,
                    creationflags=subprocess.CREATE_NO_WINDOW)
     make_shortcut(desktop_dir() / "Phone Mouse.lnk")
@@ -354,7 +416,7 @@ def install_admin() -> None:
 # ---------------------------------------------------------------- cabo USB (adb)
 def find_adb() -> str | None:
     cands = [shutil.which("adb"),
-             BASE / "platform-tools" / "adb.exe",
+             APP_DIR / "platform-tools" / "adb.exe",
              Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk" / "platform-tools" / "adb.exe"]
     winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
     if winget.exists():
@@ -582,7 +644,7 @@ def handle_network_change(old: str, new: str, tray_notify=None) -> None:
 
 # ---------------------------------------------------------------- handlers
 async def index(_req):
-    return web.FileResponse(BASE / "static" / "index.html", headers={"Cache-Control": "no-cache"})
+    return web.FileResponse(RES / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 # ---------------------------------------------------------------- PIN de acesso
@@ -980,7 +1042,12 @@ def run_tray():
     if not cfg.get("setup_shown"):   # primeira vez neste PC: mostra como assinar a notificação
         cfg["setup_shown"] = True
         CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        threading.Thread(target=open_notification_setup, daemon=True).start()
+        def first_run():
+            time.sleep(2)   # deixa o servidor subir antes de abrir as páginas
+            open_address_page("Primeira vez: aponte a câmera do celular para o QR code (ele já leva o PIN).")
+            time.sleep(1)
+            open_notification_setup()
+        threading.Thread(target=first_run, daemon=True).start()
     tray.run()
 
 
@@ -1017,6 +1084,13 @@ def main():
         make_shortcut(desktop_dir() / "Phone Mouse.lnk")
         print(f"Atalho criado em {desktop_dir()}")
         return
+    if "--stop" in sys.argv:   # usado pelo instalador antes de atualizar os arquivos
+        subprocess.run([SCHTASKS, "/end", "/tn", TASK], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        _stop_server()
+        return
+    if "--uninstall" in sys.argv or "--uninstall-admin" in sys.argv:
+        uninstall(admin_part="--uninstall-admin" in sys.argv)
+        return
     if "--send" in sys.argv:
         send_cli(sys.argv[sys.argv.index("--send") + 1:])
         return
@@ -1044,6 +1118,10 @@ def main():
         # clicou de novo no atalho: só reenvia o link para o celular
         print("Já está rodando; reenviando notificação.")
         send_notification()
+        return
+    if "--console" not in sys.argv and task_exists() and not is_admin():
+        # modo administrador instalado: qualquer atalho (Menu Iniciar, etc.) abre pela tarefa, já como admin
+        subprocess.run([SCHTASKS, "/run", "/tn", TASK], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         return
     ensure_cert(local_ips())
     if "--console" in sys.argv:

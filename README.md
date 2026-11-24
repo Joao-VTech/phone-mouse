@@ -14,9 +14,16 @@ sentidos, tela cheia, modo para jogos e acesso protegido por PIN.
   <img src="docs/tela-ajustes.png" width="230" alt="Painel de ajustes">
 </p>
 
-## Instalação rápida (Windows)
+## Instalação (Windows)
 
-**Win + R** → digite `powershell` → **Enter**, e cole/digite:
+**Mais fácil:** baixe o **[instalador](https://github.com/Joao-VTech/phone-mouse/releases/latest)**
+(`PhoneMouse-Setup-x.y.z.exe`), abra e clique em Avançar. Não precisa instalar Python nem ser administrador.
+Para desinstalar: *Configurações → Aplicativos → Phone Mouse*.
+
+> Como o instalador ainda não tem assinatura digital, o Windows pode mostrar "O Windows protegeu o computador":
+> clique em **Mais informações → Executar assim mesmo**.
+
+**Pelo PowerShell (funciona só com teclado):** **Win + R** → digite `powershell` → **Enter**, e cole/digite:
 
 ```powershell
 irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/instalar-web.ps1 | iex

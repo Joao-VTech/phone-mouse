@@ -16,9 +16,16 @@ install on the phone**. Touchpad with gestures, gyroscope pointer, full keyboard
 
 > The interface is currently in **Brazilian Portuguese**. Contributions with translations are welcome!
 
-## Quick install (Windows)
+## Install (Windows)
 
-**Win + R** → type `powershell` → **Enter**, then paste/type:
+**Easiest:** download the **[installer](https://github.com/Joao-VTech/phone-mouse/releases/latest)**
+(`PhoneMouse-Setup-x.y.z.exe`), open it and click Next. No Python and no admin rights needed.
+To uninstall: *Settings → Apps → Phone Mouse*.
+
+> The installer is not digitally signed yet, so Windows may show "Windows protected your PC":
+> click **More info → Run anyway**.
+
+**From PowerShell (keyboard-only friendly):** **Win + R** → type `powershell` → **Enter**, then paste/type:
 
 ```powershell
 irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/instalar-web.ps1 | iex
