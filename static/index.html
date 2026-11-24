@@ -38,6 +38,21 @@
   #bar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
   #bar div { height:100%; width:0; background:var(--act); }
   [hidden] { display:none !important; }
+  #files { justify-content:flex-start; overflow-y:auto; gap:12px; padding-top:32px; touch-action:pan-y; }
+  #files .fbtn { font-size:20px; padding:16px 28px; border-radius:14px; background:var(--act); color:#fff; }
+  #files .fsub { color:var(--mut); font-size:13px; }
+  #files .fhead { font-weight:700; margin-top:10px; }
+  #files #filesClose { font-size:16px; padding:10px 24px; background:var(--btn); }
+  #upBar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
+  #upBar div { height:100%; width:0; background:#4ade80; }
+  #fileList { width:100%; max-width:420px; display:flex; flex-direction:column; gap:6px; }
+  #fileList a { display:flex; justify-content:space-between; gap:10px; padding:12px 14px; border-radius:10px; background:#222; color:#eee; text-decoration:none; text-align:left; }
+  #fileList a span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #fileList a span:last-child { color:var(--mut); flex:none; }
+  #filesFs { position:fixed; top:10px; right:114px; width:44px; height:44px; border:0; border-radius:22px;
+             background:rgba(255,255,255,.08); color:#aaa; font-size:20px; display:none; z-index:5; }
+  body.full #filesFs { display:block; }
+  #toast a { color:#93c5fd; font-weight:700; margin-left:8px; }
   #pinIn { font-size:32px; letter-spacing:10px; text-align:center; width:220px; padding:10px; border-radius:12px;
            border:1px solid #444; background:#1b1b1b; color:#fff; -webkit-user-select:text; user-select:text; touch-action:auto; }
   #cfg .line { flex-wrap:wrap; }
@@ -98,6 +113,7 @@
       <button class="small" id="recal">Recalibrar</button>
       <button class="small" id="full">⛶ Tela cheia</button>
       <button class="small" id="kbBtn">⌨ Teclado</button>
+      <button class="small" id="filesBtn">📎 Arquivos</button>
     </div>
   </div>
   <div id="kb" hidden>
@@ -114,6 +130,7 @@
 <div id="toast" hidden></div>
 <button id="exitFull" title="Sair da tela cheia">✕</button>
 <button id="rotate" title="Virar a tela">⟳</button>
+<button id="filesFs" title="Arquivos">📎</button>
 
 <!-- tela inicial -->
 <div class="overlay" id="start">
@@ -123,6 +140,19 @@
     🔦 <b>Apontador</b>: gire o pulso para apontar, como um laser.</div>
   <button id="go">Iniciar</button>
   <div id="err" style="color:#f87171"></div>
+</div>
+
+<!-- arquivos -->
+<div class="overlay" id="files" hidden>
+  <div class="big">📎 Arquivos</div>
+  <label class="fbtn">📤 Enviar para o PC<input id="fileIn" type="file" multiple hidden></label>
+  <div id="upStatus"></div>
+  <div id="upBar" hidden><div></div></div>
+  <div class="fsub">Vão para a pasta <b>Downloads\Phone Mouse</b> do PC.</div>
+  <div class="fhead">📥 Do PC para o celular</div>
+  <div id="fileList"></div>
+  <div class="fsub">No PC: botão direito no arquivo → <b>Enviar para</b> → <b>Phone Mouse (celular)</b>,<br>ou ícone perto do relógio → <b>Enviar arquivo para o celular</b>.</div>
+  <button id="filesClose">Fechar</button>
 </div>
 
 <!-- PIN de acesso -->
@@ -326,6 +356,10 @@ function connect() {
     $("conn").textContent = "● conectado"; $("conn").className = "ok";
     fetch(infoUrl()).then(r => r.json()).then(i => { $("conn").textContent = "● " + i.name; document.title = "Phone Mouse · " + i.name; }).catch(() => {});
   };
+  ws.onmessage = e => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === "file") fileArrived(m);
+  };
   ws.onclose = e => {
     $("conn").textContent = "● desconectado"; $("conn").className = "bad";
     if (e.code === 4001) { setPin(""); askPin("O PIN do PC mudou. Digite o novo PIN.").then(connect); }
@@ -487,6 +521,57 @@ kb.querySelectorAll("button").forEach(b => {
   });
 });
 $("kbBtn").onclick = () => openKeyboard();
+
+// ---- arquivos
+const fmtSize = b => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB";
+const fileUrl = id => `/files/${encodeURIComponent(id)}?pin=${encodeURIComponent(getPin())}`;
+function escapeHtml(t) { return String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]); }
+async function refreshFiles() {
+  const box = $("fileList");
+  try {
+    const list = await (await fetch(`/files?pin=${encodeURIComponent(getPin())}`)).json();
+    box.innerHTML = list.length ? list.map(f =>
+      `<a href="${fileUrl(f.id)}" download="${escapeHtml(f.name)}"><span>⬇ ${escapeHtml(f.name)}</span><span>${fmtSize(f.size)}</span></a>`).join("")
+      : '<div class="fsub">Nenhum arquivo enviado pelo PC ainda.</div>';
+  } catch { box.innerHTML = '<div class="fsub">Sem conexão com o PC.</div>'; }
+}
+function openFiles() { $("files").hidden = false; refreshFiles(); }
+$("filesBtn").onclick = openFiles;
+$("filesFs").onclick = openFiles;
+$("filesClose").onclick = () => $("files").hidden = true;
+function fileArrived(f) {
+  navigator.vibrate?.([20, 60, 20]);
+  const t = $("toast");
+  t.innerHTML = `📥 ${escapeHtml(f.name)} <a href="${fileUrl(f.id)}" download="${escapeHtml(f.name)}">Baixar</a>`;
+  t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 12000);
+  if (!$("files").hidden) refreshFiles();
+}
+function uploadOne(file, i, total) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/upload?pin=${encodeURIComponent(getPin())}&name=${encodeURIComponent(file.name)}`);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) $("upBar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%";
+    };
+    xhr.onload = () => resolve(xhr.status === 200);
+    xhr.onerror = () => resolve(false);
+    $("upStatus").textContent = `Enviando ${i}/${total}: ${file.name} (${fmtSize(file.size)})`;
+    $("upBar").firstElementChild.style.width = "0";
+    xhr.send(file);
+  });
+}
+$("fileIn").onchange = async () => {
+  const list = [...$("fileIn").files];
+  if (!list.length) return;
+  $("upBar").hidden = false;
+  let ok = 0;
+  for (let i = 0; i < list.length; i++) ok += await uploadOne(list[i], i + 1, list.length) ? 1 : 0;
+  $("upBar").hidden = true;
+  $("upStatus").textContent = ok === list.length ? `✅ ${ok} arquivo(s) enviado(s) para o PC.` : `⚠️ ${ok} de ${list.length} enviados.`;
+  navigator.vibrate?.(30);
+  $("fileIn").value = "";
+};
 
 // ---- teclado próprio (ABNT simplificado)
 const LAYERS = {

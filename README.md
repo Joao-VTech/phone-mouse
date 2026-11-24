@@ -5,8 +5,8 @@
 ![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue) ![Windows](https://img.shields.io/badge/PC-Windows-0078D6) ![Android e iPhone](https://img.shields.io/badge/celular-Android%20%7C%20iPhone-3DDC84)
 
 Use o celular como **mouse e teclado do PC** (Windows) pelo navegador — **sem instalar app no celular**.
-Touchpad com gestos, apontador por giroscópio, teclado com acentos, tela cheia, modo para jogos e
-acesso protegido por PIN.
+Touchpad com gestos, apontador por giroscópio, teclado com acentos, **envio de arquivos** nos dois
+sentidos, tela cheia, modo para jogos e acesso protegido por PIN.
 
 ## Instalação rápida (Windows)
 
@@ -57,6 +57,13 @@ Digita no PC com acentos, corretor e emoji. Barra com Esc, Tab, Ctrl, Alt, Shift
 (toque no modificador e depois na tecla, ex.: Ctrl → `c`). Com a tela girada pela página, usa um
 teclado próprio que gira junto.
 
+## 📎 Arquivos
+- **Celular → PC:** na página, **📎 Arquivos → Enviar para o PC** (fotos, vídeos, qualquer arquivo).
+  Vão para **`Downloads\Phone Mouse`**; o PC avisa e abre a pasta.
+- **PC → celular:** botão direito no arquivo → **Enviar para → Phone Mouse (celular)**, ou ícone da
+  bandeja → *Enviar arquivo para o celular…*. O celular mostra **"Baixar"** na hora.
+- O celular só baixa o que você escolheu enviar no PC — nunca outros arquivos.
+
 ## 🔒 PIN de acesso
 Cada PC tem um **PIN de 6 dígitos**. Sem ele ninguém controla o PC, mesmo estando na mesma rede.
 - **Escanear o QR code da tela do PC já pareia** (o PIN vai dentro do QR); o celular memoriza.
@@ -73,7 +80,8 @@ Para usar o **mesmo tópico em vários PCs**, copie o `config.json` entre eles. 
 `"notify"` para `false`. Para trocar o nome mostrado, adicione `"pc_name": "Sala"`.
 
 ## Ícone da bandeja
-Endereço e PIN · Enviar link para o celular · Mostrar QR do endereço · Gerar novo PIN ·
+Endereço e PIN · Enviar link para o celular · Enviar arquivo para o celular · Abrir arquivos recebidos ·
+Mostrar QR do endereço · Gerar novo PIN ·
 Configurar notificação no celular · Ativar modo administrador · Iniciar com o Windows · Sair.
 
 ## Conexão
@@ -92,7 +100,7 @@ irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/diagnostico.ps
 Ele verifica servidor, rede e firewall, oferece corrigir o firewall e mostra o endereço certo.
 
 **Comandos:** `py server.py --print-url` (QR code + PIN) · `--pin` · `--new-pin` · `--autostart on|off` ·
-`--setup-notification` · `--install-admin` · `--console`.
+`--setup-notification` · `--install-admin` · `--send arquivo` · `--console`.
 
 ## Observações
 - **Limites do Windows:** a **tela de login**, o **Ctrl+Alt+Del** e os **avisos do UAC** não aceitam

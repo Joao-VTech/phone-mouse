@@ -6,7 +6,7 @@
 
 Turn your phone into a **mouse and keyboard for your Windows PC** using just the browser — **no app to
 install on the phone**. Touchpad with gestures, gyroscope pointer, full keyboard (accents, emoji),
-fullscreen, game-friendly admin mode and PIN-protected access.
+**file transfer both ways**, fullscreen, game-friendly admin mode and PIN-protected access.
 
 > The interface is currently in **Brazilian Portuguese**. Contributions with translations are welcome!
 
@@ -60,6 +60,13 @@ Types on the PC with accents, autocorrect and emoji. Bar with Esc, Tab, Ctrl, Al
 and Del (tap the modifier, then the key, e.g. Ctrl → `c`). When the page itself is rotated, a built-in
 keyboard that rotates with it is used.
 
+## 📎 Files
+- **Phone → PC:** on the page, **📎 Arquivos → Enviar para o PC** (photos, videos, any file).
+  They go to **`Downloads\Phone Mouse`**; the PC shows a notice and opens the folder.
+- **PC → phone:** right-click a file → **Send to → Phone Mouse (celular)**, or tray icon →
+  *Enviar arquivo para o celular…*. The phone shows **"Baixar"** (Download) right away.
+- The phone can only download what you chose to send from the PC — never any other file.
+
 ## 🔒 Access PIN
 Each PC has a **6-digit PIN**. Without it nobody can control the PC, even on the same network.
 - **Scanning the QR code on the PC screen pairs the phone** (the PIN is inside the QR); the phone remembers it.
@@ -91,7 +98,7 @@ irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/diagnostico.ps
 It checks the server, network and firewall, offers to fix the firewall and shows the right address.
 
 **Commands:** `py server.py --print-url` (QR code + PIN) · `--pin` · `--new-pin` · `--autostart on|off` ·
-`--setup-notification` · `--install-admin` · `--console`.
+`--setup-notification` · `--install-admin` · `--send file` · `--console`.
 
 ## Notes
 - **Windows limits:** the **sign-in screen**, **Ctrl+Alt+Del** and **UAC prompts** do not accept virtual

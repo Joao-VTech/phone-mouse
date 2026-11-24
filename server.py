@@ -60,6 +60,9 @@ def load_config() -> dict:
     if not cfg.get("pin"):
         cfg["pin"] = new_pin()
         changed = True
+    if not cfg.get("local_token"):   # só o próprio PC conhece: usado para compartilhar arquivos
+        cfg["local_token"] = secrets.token_hex(16)
+        changed = True
     if changed:
         CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return cfg
@@ -294,6 +297,22 @@ def make_shortcut(lnk: Path) -> None:
         tgt, args, style = SCHTASKS, f"/run /tn {TASK}", 7    # 7 = minimizado (sem piscar janela)
     else:
         tgt, args, style = pythonw(), f'"{BASE / "server.py"}"', 1
+    write_lnk(lnk, tgt, args, style)
+
+
+SENDTO_LNK = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/SendTo/Phone Mouse (celular).lnk"
+
+
+def ensure_sendto() -> None:
+    """Botão direito num arquivo -> Enviar para -> Phone Mouse (celular)."""
+    if not SENDTO_LNK.exists():
+        try:
+            write_lnk(SENDTO_LNK, pythonw(), f'"{BASE / "server.py"}" --send', 1)
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"[arquivos] não consegui criar o 'Enviar para': {e}")
+
+
+def write_lnk(lnk: Path, tgt: str, args: str, style: int) -> None:
     ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);"
           "$s.TargetPath=$env:TGT;$s.Arguments=$env:ARGS;$s.WorkingDirectory=$env:WD;"
           "$s.IconLocation=$env:ICO;$s.WindowStyle=[int]$env:STYLE;$s.Description='Phone Mouse';$s.Save()")
@@ -613,6 +632,160 @@ def regenerate_pin() -> str:
     return cfg["pin"]
 
 
+# ---------------------------------------------------------------- arquivos
+def downloads_dir() -> Path:
+    """Pasta Downloads do Windows (respeita se o usuário a moveu)."""
+    try:
+        import uuid
+        class GUID(ctypes.Structure):
+            _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                        ("Data4", ctypes.c_ubyte * 8)]
+        u = uuid.UUID("374DE290-123F-4565-9164-39C4925E467B")   # FOLDERID_Downloads
+        g = GUID(u.fields[0], u.fields[1], u.fields[2], (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) == 0:
+            path = Path(out.value)
+            ctypes.windll.ole32.CoTaskMemFree(out)
+            return path
+    except Exception:
+        pass
+    return Path.home() / "Downloads"
+
+
+RECEIVED_DIR = downloads_dir() / "Phone Mouse"
+events: dict = {"toast": None}   # a bandeja registra aqui como mostrar avisos no PC
+_last_folder_open = {"t": 0.0}
+
+
+def toast_pc(msg: str) -> None:
+    if events["toast"]:
+        try:
+            events["toast"](msg)
+        except Exception:
+            pass
+
+
+def safe_filename(name: str) -> str:
+    name = Path(str(name).replace("\\", "/")).name           # tira qualquer caminho
+    name = "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name).strip(" .")
+    return (name or "arquivo")[:180]
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for i in range(1, 10000):
+        cand = path.with_name(f"{path.stem} ({i}){path.suffix}")
+        if not cand.exists():
+            return cand
+    return path.with_name(f"{path.stem} ({secrets.token_hex(3)}){path.suffix}")
+
+
+async def upload(req):
+    """Celular -> PC: o corpo da requisição é o arquivo; salva em Downloads\\Phone Mouse."""
+    st = check_pin(req)
+    if st != 200:
+        return web.json_response({"error": "pin"}, status=st)
+    RECEIVED_DIR.mkdir(parents=True, exist_ok=True)
+    dest = unique_path(RECEIVED_DIR / safe_filename(req.query.get("name", "arquivo")))
+    part = dest.with_name(dest.name + ".part")
+    size = 0
+    try:
+        with open(part, "wb") as f:
+            async for chunk in req.content.iter_chunked(1 << 16):
+                f.write(chunk)
+                size += len(chunk)
+        part.replace(dest)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise
+    print(f"[arquivos] recebido do celular: {dest.name} ({size} bytes)")
+    toast_pc(f"Recebido do celular: {dest.name}")
+    if time.time() - _last_folder_open["t"] > 15:   # abre a pasta (uma vez por leva de arquivos)
+        _last_folder_open["t"] = time.time()
+        subprocess.Popen(["explorer.exe", f"/select,{dest}"])
+    return web.json_response({"ok": True, "name": dest.name, "size": size})
+
+
+shared_files: list[dict] = []   # PC -> celular: só o que o usuário escolheu compartilhar
+
+
+def broadcast(msg: dict) -> None:
+    loop = loop_ref.get("loop")
+    if loop:
+        for ws in list(active_ws):
+            asyncio.run_coroutine_threadsafe(ws.send_json(msg), loop)
+
+
+def share_paths(paths) -> list[str]:
+    added = []
+    for p in paths:
+        path = Path(p)
+        if not path.is_file():
+            continue
+        item = {"id": secrets.token_urlsafe(9), "name": path.name, "path": str(path),
+                "size": path.stat().st_size, "t": time.time()}
+        shared_files.insert(0, item)
+        added.append(path.name)
+        broadcast({"t": "file", "id": item["id"], "name": item["name"], "size": item["size"]})
+    del shared_files[30:]
+    if added:
+        print(f"[arquivos] disponível no celular: {', '.join(added)}")
+        toast_pc("Disponível no celular: " + ", ".join(added) +
+                 ("" if clients["n"] else " (abra o Phone Mouse no celular para baixar)"))
+    return added
+
+
+async def share(req):
+    """Só o próprio PC (com o token local) pode adicionar arquivos à lista."""
+    if not secrets.compare_digest(str(req.query.get("token", "")), str(load_config()["local_token"])):
+        return web.json_response({"error": "token"}, status=403)
+    data = await req.json()
+    added = share_paths(data.get("paths", []))
+    return web.json_response({"ok": True, "added": added})
+
+
+async def files_list(req):
+    st = check_pin(req)
+    if st != 200:
+        return web.json_response({"error": "pin"}, status=st)
+    return web.json_response([{k: f[k] for k in ("id", "name", "size", "t")} for f in shared_files])
+
+
+async def file_get(req):
+    st = check_pin(req)
+    if st != 200:
+        return web.json_response({"error": "pin"}, status=st)
+    item = next((f for f in shared_files if f["id"] == req.match_info["fid"]), None)
+    if not item or not Path(item["path"]).is_file():
+        return web.json_response({"error": "não encontrado"}, status=404)
+    from urllib.parse import quote
+    return web.FileResponse(item["path"], headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(item['name'])}"})
+
+
+def send_cli(paths: list[str]) -> None:
+    """--send (usado pelo 'Enviar para' do Explorer): entrega os arquivos ao servidor que está rodando."""
+    files = [str(Path(p).resolve()) for p in paths if Path(p).is_file()]
+    msg = None
+    if not files:
+        msg = "Escolha um ou mais arquivos (pastas não são enviadas)."
+    else:
+        body = json.dumps({"paths": files}).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://127.0.0.1:{PORT}/share?token={load_config()['local_token']}", data=body, method="POST",
+            headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=10).close()
+        except OSError:
+            msg = "O Phone Mouse não está rodando. Abra o atalho Phone Mouse e tente de novo."
+    if msg:
+        if sys.stdout and sys.stdout.isatty():
+            print(msg)
+        else:
+            ctypes.windll.user32.MessageBoxW(None, msg, "Phone Mouse", 0x30)
+
+
 async def info(req):
     st = check_pin(req)
     if st != 200:
@@ -682,6 +855,10 @@ def build_app() -> web.Application:
     app.router.add_get("/info", info)
     app.router.add_get("/manifest.json", manifest)
     app.router.add_get("/icon.png", icon)
+    app.router.add_post("/upload", upload)
+    app.router.add_post("/share", share)
+    app.router.add_get("/files", files_list)
+    app.router.add_get("/files/{fid}", file_get)
 
     async def start_bg(app):
         loop_ref["loop"] = asyncio.get_running_loop()
@@ -744,6 +921,18 @@ def run_tray():
                             "Não consegui enviar (notificação desligada ou sem internet).", "Phone Mouse")
         threading.Thread(target=job, daemon=True).start()
 
+    def pick_and_share():
+        def job():
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            paths = filedialog.askopenfilenames(title="Enviar para o celular")
+            root.destroy()
+            share_paths(paths)
+        threading.Thread(target=job, daemon=True).start()
+
     def new_pin_from_tray():
         pin = regenerate_pin()
         tray.update_menu()
@@ -770,6 +959,9 @@ def run_tray():
                          "Modo administrador: desligado", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Enviar link para o celular", lambda: notify_bg(), default=True),
+        pystray.MenuItem("Enviar arquivo para o celular…", lambda: pick_and_share()),
+        pystray.MenuItem("Abrir arquivos recebidos", lambda: (RECEIVED_DIR.mkdir(parents=True, exist_ok=True),
+                                                             subprocess.Popen(["explorer.exe", str(RECEIVED_DIR)]))),
         pystray.MenuItem("Mostrar QR do endereço", lambda: open_address_page()),
         pystray.MenuItem("Gerar novo PIN (desconecta os celulares)", lambda: new_pin_from_tray()),
         pystray.MenuItem("Configurar notificação no celular", lambda: open_notification_setup()),
@@ -779,6 +971,8 @@ def run_tray():
         pystray.MenuItem("Sair", quit_app),
     )
     tray = pystray.Icon("phone-mouse", Image.open(ICON_PNG), "Phone Mouse", menu)
+    events["toast"] = lambda m: tray.notify(m, "Phone Mouse")
+    threading.Thread(target=ensure_sendto, daemon=True).start()
     notify_bg(wait=True)
     threading.Thread(target=watch_network, daemon=True,
                      args=(lambda o, n: handle_network_change(o, n, lambda m: tray.notify(m, "Phone Mouse")),)).start()
@@ -822,6 +1016,9 @@ def main():
     if "--make-desktop-shortcut" in sys.argv:
         make_shortcut(desktop_dir() / "Phone Mouse.lnk")
         print(f"Atalho criado em {desktop_dir()}")
+        return
+    if "--send" in sys.argv:
+        send_cli(sys.argv[sys.argv.index("--send") + 1:])
         return
     if "--pin" in sys.argv:
         print("PIN de acesso:", load_config()["pin"])
