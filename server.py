@@ -231,29 +231,105 @@ def physical_addresses() -> list[tuple[str, str]]:
     return [tuple(line.strip().split("|", 1)) for line in out.splitlines() if "|" in line]
 
 
-def ensure_cert(ips: list[str]) -> None:
-    if CERT.exists() and KEY.exists():
-        return
+CA_CERT, CA_KEY = BASE / "ca.pem", BASE / "ca-key.pem"
+# a autoridade local só vale para endereços de rede local: mesmo copiada, não serve para sites da internet
+_LOCAL_NETS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10"]
+
+
+def _is_local_ip(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+        return a.version == 4 and any(a in ipaddress.ip_network(n) for n in _LOCAL_NETS)
+    except ValueError:
+        return False
+
+
+def ensure_ca():
+    """Autoridade certificadora deste PC (criada uma vez). O celular confia nela uma única vez."""
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
-
+    if CA_CERT.exists() and CA_KEY.exists():
+        return (x509.load_pem_x509_certificate(CA_CERT.read_bytes()),
+                serialization.load_pem_private_key(CA_KEY.read_bytes(), password=None))
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "phone-mouse")])
-    san = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_address(i)) for i in ips]
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"Phone Mouse CA ({pc_name()})"[:64]),
+                      x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Phone Mouse")])
     now = datetime.datetime.now(datetime.timezone.utc)
+    permitted = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_network(n)) for n in _LOCAL_NETS]
     cert = (x509.CertificateBuilder()
             .subject_name(name).issuer_name(name).public_key(key.public_key())
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - datetime.timedelta(days=1))
             .not_valid_after(now + datetime.timedelta(days=3650))
-            .add_extension(x509.SubjectAlternativeName(san), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+                                         data_encipherment=False, key_agreement=False, key_cert_sign=True,
+                                         crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
+            .add_extension(x509.NameConstraints(permitted_subtrees=permitted, excluded_subtrees=None), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
             .sign(key, hashes.SHA256()))
-    CERT.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    KEY.write_bytes(key.private_bytes(serialization.Encoding.PEM,
-                                      serialization.PrivateFormat.TraditionalOpenSSL,
+    CA_KEY.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                                         serialization.NoEncryption()))
+    CA_CERT.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    print("[cert] autoridade local criada")
+    return cert, key
+
+
+def ensure_cert(ips: list[str]) -> bool:
+    """Certificado do PC assinado pela autoridade local. Refaz se faltar, vencer em breve, não for da
+    autoridade ou não cobrir um endereço atual (troca de rede). Retorna True se gerou um novo."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+    ca_cert, ca_key = ensure_ca()
+    ips = sorted({i for i in ips if _is_local_ip(i)} | {"127.0.0.1"})
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if CERT.exists() and KEY.exists():
+        try:
+            cur = x509.load_pem_x509_certificate(CERT.read_bytes())
+            san = cur.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            have = {str(i) for i in san.get_values_for_type(x509.IPAddress)}
+            if (cur.issuer == ca_cert.subject and set(ips) <= have
+                    and cur.not_valid_after_utc - now > datetime.timedelta(days=30)):
+                return False
+        except Exception:
+            pass
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    san = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_address(i)) for i in ips]
+    cert = (x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, pc_name()[:64] or "phone-mouse")]))
+            .issuer_name(ca_cert.subject).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=395))   # total < 398 dias: limite de iPhone/Chrome
+            .add_extension(x509.SubjectAlternativeName(san), critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=True,
+                                         data_encipherment=False, key_agreement=False, key_cert_sign=False,
+                                         crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+            .sign(ca_key, hashes.SHA256()))
+    KEY.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
                                       serialization.NoEncryption()))
+    # o arquivo leva o certificado do PC + o da autoridade (cadeia completa)
+    CERT.write_bytes(cert.public_bytes(serialization.Encoding.PEM) + ca_cert.public_bytes(serialization.Encoding.PEM))
+    print(f"[cert] certificado do PC renovado para: {', '.join(ips)}")
+    return True
+
+
+def ca_der() -> bytes:
+    from cryptography.hazmat.primitives import serialization
+    return ensure_ca()[0].public_bytes(serialization.Encoding.DER)
+
+
+def ca_fingerprint() -> str:
+    import hashlib
+    h = hashlib.sha256(ca_der()).hexdigest().upper()
+    return ":".join(h[i:i + 2] for i in range(0, 16, 2))   # início do SHA-256, para conferir
 
 
 def already_running() -> bool:
@@ -606,11 +682,43 @@ def open_address_page(reason: str = "") -> None:
 <div class="url">{html.escape(url)}</div>
 <div class="pin">PIN: <b>{html.escape(current_pin())}</b></div>
 <p class="foot">Aponte a câmera do celular para o QR code (ele já leva o PIN). O celular precisa estar na mesma rede do PC.<br>
-Esta página pode ser fechada (Alt+F4).</p>
+Esta página pode ser fechada (Alt+F4).<br>
+Aviso de "site perigoso" no celular? Abra <b>{html.escape(url)}/ca</b> para resolver de vez.</p>
 {alt}
 </main></body></html>"""
     ADDR_HTML.write_text(page, encoding="utf-8")
     subprocess.Popen(["explorer.exe", str(ADDR_HTML)])
+
+
+def open_trust_page() -> None:
+    """QR code que abre no celular a página "Confiar neste PC" (remove o aviso de site perigoso)."""
+    import html
+    ip = primary_ip()
+    if not ip:
+        return
+    url = f"https://{ip}:{PORT}/ca"
+    qr = _qr_png_b64(url)
+    page = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Phone Mouse - confiar neste PC</title>
+<style>
+ :root {{ --bg:#f6f7f9; --fg:#1b1d21; --mut:#5b6270; }}
+ @media (prefers-color-scheme: dark) {{ :root {{ --bg:#111317; --fg:#e8eaee; --mut:#9aa1ad; }} }}
+ body {{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }}
+ main {{ max-width:520px; margin:0 auto; padding:32px 16px; text-align:center; }}
+ h1 {{ font-size:24px; margin:0 0 6px; }} p {{ color:var(--mut); }}
+ .qr {{ width:260px; max-width:90vw; background:#fff; padding:10px; border-radius:14px; }}
+ code {{ font-size:15px; word-break:break-all; }}
+</style></head><body><main>
+<h1>Tirar o aviso de "site perigoso"</h1>
+<p>Aponte a câmera do celular para o QR code e siga os passos da página que abrir.
+Faça isso uma vez por celular.</p>
+<img class="qr" alt="QR code da página Confiar neste PC" src="data:image/png;base64,{qr}">
+<p><code>{html.escape(url)}</code></p>
+<p>No iPhone, abra o link no <b>Safari</b>: só ele instala o perfil.</p>
+</main></body></html>"""
+    path = BASE / "confiar.html"
+    path.write_text(page, encoding="utf-8")
+    subprocess.Popen(["explorer.exe", str(path)])
 
 
 def check_network_change(state: dict, on_change) -> None:
@@ -634,6 +742,10 @@ def watch_network(on_change, interval: float = 5) -> None:
 
 def handle_network_change(old: str, new: str, tray_notify=None) -> None:
     print(f"[rede] endereço mudou: {old} -> {new}")
+    try:
+        reload_cert()
+    except Exception as e:
+        print(f"[cert] não consegui renovar: {e}")
     url = f"https://{new}:{PORT}"
     send_notification()
     if tray_notify:
@@ -856,6 +968,89 @@ async def info(req):
                               "wifi": local_ips(), **usb_state})
 
 
+# ---------------------------------------------------------------- confiar no PC (remove o aviso no celular)
+async def ca_crt(_req):
+    """Certificado da autoridade local (Android). É público: não tem nada secreto."""
+    return web.Response(body=ca_der(), content_type="application/x-x509-ca-cert",
+                        headers={"Content-Disposition": 'attachment; filename="PhoneMouse-CA.crt"'})
+
+
+async def ca_mobileconfig(_req):
+    """Perfil do iPhone que instala a autoridade local."""
+    import plistlib
+    import uuid
+    der = ca_der()
+    base = uuid.uuid5(uuid.NAMESPACE_URL, "phone-mouse-ca:" + ca_fingerprint())
+    profile = {
+        "PayloadType": "Configuration", "PayloadVersion": 1,
+        "PayloadIdentifier": f"com.jvtech.phonemouse.{base}", "PayloadUUID": str(base).upper(),
+        "PayloadDisplayName": f"Phone Mouse - {pc_name()}",
+        "PayloadDescription": "Faz este celular confiar no Phone Mouse deste PC e remove o aviso de site perigoso. "
+                              "Vale só para endereços de rede local.",
+        "PayloadOrganization": "Phone Mouse",
+        "PayloadContent": [{
+            "PayloadType": "com.apple.security.root", "PayloadVersion": 1,
+            "PayloadIdentifier": f"com.jvtech.phonemouse.ca.{base}",
+            "PayloadUUID": str(uuid.uuid5(base, "ca")).upper(),
+            "PayloadDisplayName": "Phone Mouse CA", "PayloadCertificateFileName": "PhoneMouse-CA.cer",
+            "PayloadContent": der,
+        }],
+    }
+    return web.Response(body=plistlib.dumps(profile), content_type="application/x-apple-aspen-config",
+                        headers={"Content-Disposition": 'attachment; filename="PhoneMouse.mobileconfig"'})
+
+
+CA_PAGE = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Confiar neste PC · Phone Mouse</title>
+<style>
+ :root{--bg:#0e1014;--s:#171a20;--s2:#20242c;--line:#2a2f38;--fg:#e8eaef;--mut:#8b93a1;--acc:#3b82f6;--ok:#4ade80}
+ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+ main{max-width:560px;margin:0 auto;padding:24px 16px 40px;display:grid;gap:14px}
+ h1{font-size:24px;margin:0} .lead{color:var(--mut);margin:0}
+ section{background:var(--s);border:1px solid var(--line);border-radius:16px;padding:16px}
+ h2{font-size:18px;margin:0 0 10px;display:flex;gap:8px;align-items:center}
+ .tag{font-size:11px;font-weight:700;color:#93c5fd;background:rgba(59,130,246,.16);padding:2px 8px;border-radius:99px}
+ ol{margin:0;padding-left:20px} li{margin:8px 0} b{font-weight:600}
+ .btn{display:inline-block;margin:6px 0;padding:12px 18px;border-radius:12px;background:var(--acc);color:#fff;text-decoration:none;font-weight:600;border:0;font-size:15px}
+ .btn.alt{background:var(--s2);color:var(--fg)} code{background:var(--s2);padding:2px 6px;border-radius:6px;font-size:13px;word-break:break-all}
+ .note{color:var(--mut);font-size:13px} .ok{color:var(--ok)}
+</style></head><body><main>
+<h1>Confiar neste PC</h1>
+<p class="lead">Faça isto <b>uma vez</b> e o aviso de "site perigoso" some, mesmo quando o endereço do PC mudar.
+Vale só para o Phone Mouse na sua rede local.</p>
+<section id="ios"><h2>iPhone / iPad <span class="tag" id="ios-tag" hidden>seu aparelho</span></h2><ol>
+ <li><b>Abra esta página no Safari</b> (o Chrome do iPhone não instala perfis).
+  <br><button class="btn alt" id="copy">Copiar endereço desta página</button></li>
+ <li><a class="btn" href="/ca.mobileconfig">Baixar perfil</a> e toque em <b>Permitir</b>.</li>
+ <li>Abra <b>Ajustes</b> → <b>Perfil Transferido</b> → <b>Instalar</b> (pede o código do iPhone).</li>
+ <li>Abra <b>Ajustes → Geral → Sobre → Ajustes de Confiança de Certificados</b> e
+  <b>ative "Phone Mouse CA"</b>.</li>
+ <li>Feche e abra de novo a página do Phone Mouse. <span class="ok">Pronto, sem aviso.</span></li></ol></section>
+<section id="android"><h2>Android <span class="tag" id="and-tag" hidden>seu aparelho</span></h2><ol>
+ <li><a class="btn" href="/ca.crt">Baixar certificado</a></li>
+ <li>Abra <b>Configurações → Segurança</b> (ou "Segurança e privacidade") → <b>Mais configurações</b> →
+  <b>Criptografia e credenciais</b> → <b>Instalar um certificado</b> → <b>Certificado de CA</b>.</li>
+ <li>Toque em <b>Instalar mesmo assim</b> e escolha o arquivo <b>PhoneMouse-CA.crt</b> em Downloads.</li>
+ <li>Feche e abra de novo a página do Phone Mouse no Chrome. <span class="ok">Pronto, sem aviso.</span></li></ol>
+ <p class="note">Os nomes dos menus variam um pouco entre marcas (Samsung, Motorola, Xiaomi...).</p></section>
+<p class="note">Para conferir: o certificado se chama <b>Phone Mouse CA (__PC__)</b> e a impressão digital começa com
+<code>__FP__</code>. Para desfazer, remova o perfil (iPhone) ou o certificado (Android) nas configurações.</p>
+</main><script>
+const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua), and = /Android/.test(ua);
+if (ios) document.getElementById("ios-tag").hidden = false;
+if (and) { document.getElementById("and-tag").hidden = false; document.querySelector("main").insertBefore(document.getElementById("android"), document.getElementById("ios")); }
+document.getElementById("copy").onclick = async e => {
+  try { await navigator.clipboard.writeText(location.href); e.target.textContent = "Copiado! Cole no Safari"; }
+  catch { e.target.textContent = location.href; }
+};
+</script></body></html>"""
+
+
+async def ca_page(_req):
+    html = CA_PAGE.replace("__PC__", pc_name()).replace("__FP__", ca_fingerprint())
+    return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
 async def manifest(_req):
     return web.json_response({
         "name": "Phone Mouse", "short_name": "Phone Mouse", "start_url": "/",
@@ -917,6 +1112,9 @@ def build_app() -> web.Application:
     app.router.add_get("/info", info)
     app.router.add_get("/manifest.json", manifest)
     app.router.add_get("/icon.png", icon)
+    app.router.add_get("/ca", ca_page)
+    app.router.add_get("/ca.crt", ca_crt)
+    app.router.add_get("/ca.mobileconfig", ca_mobileconfig)
     app.router.add_post("/upload", upload)
     app.router.add_post("/share", share)
     app.router.add_get("/files", files_list)
@@ -930,10 +1128,21 @@ def build_app() -> web.Application:
     return app
 
 
+_ssl = {}
+
+
 def ssl_ctx() -> ssl.SSLContext:
-    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ctx.load_cert_chain(CERT, KEY)
-    return ctx
+    if "ctx" not in _ssl:
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx.load_cert_chain(CERT, KEY)
+        _ssl["ctx"] = ctx
+    return _ssl["ctx"]
+
+
+def reload_cert() -> None:
+    """Após troca de rede: renova o certificado se preciso; novas conexões já usam o novo."""
+    if ensure_cert(local_ips()) and "ctx" in _ssl:
+        _ssl["ctx"].load_cert_chain(CERT, KEY)
 
 
 def print_banner(ips):
@@ -1025,6 +1234,7 @@ def run_tray():
         pystray.MenuItem("Abrir arquivos recebidos", lambda: (RECEIVED_DIR.mkdir(parents=True, exist_ok=True),
                                                              subprocess.Popen(["explorer.exe", str(RECEIVED_DIR)]))),
         pystray.MenuItem("Mostrar QR do endereço", lambda: open_address_page()),
+        pystray.MenuItem("Tirar aviso de \"site perigoso\" no celular…", lambda: open_trust_page()),
         pystray.MenuItem("Gerar novo PIN (desconecta os celulares)", lambda: new_pin_from_tray()),
         pystray.MenuItem("Configurar notificação no celular", lambda: open_notification_setup()),
         pystray.MenuItem("Ativar modo administrador (jogos e apps admin)", lambda: install_admin(),

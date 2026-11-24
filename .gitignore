@@ -1,11 +1,14 @@
 # gerados automaticamente em cada PC
 cert.pem
 key.pem
+ca.pem
+ca-key.pem
 icon.ico
 static/icon.png
 phone-mouse.log
 notificacao.html
 endereco.html
+confiar.html
 __pycache__/
 
 # pessoal: contém o tópico secreto de notificação

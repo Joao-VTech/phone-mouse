@@ -89,6 +89,12 @@ Cada PC tem um **PIN de 6 dígitos**. Sem ele ninguém controla o PC, mesmo esta
 - **Gerar novo PIN** (menu da bandeja) desconecta todos os celulares, que pedem o PIN de novo.
 - Após 5 PINs errados, o aparelho fica bloqueado por 1 minuto.
 
+### Tirar o aviso de "site perigoso"
+O PC tem uma **autoridade de certificados própria**, que vale **só para endereços de rede local**. Confie nela
+**uma vez** em cada celular e o aviso some para sempre, mesmo quando o IP do PC mudar: nos **Ajustes** do app →
+*Tirar o aviso de "site perigoso"* (ou ícone da bandeja → *Tirar aviso…*, que mostra um QR code). No iPhone,
+abra a página no **Safari** para instalar o perfil.
+
 ## Notificação no celular
 
 <p align="center"><img src="docs/notificacao.png" width="400" alt="Exemplo da notificação no celular"></p>

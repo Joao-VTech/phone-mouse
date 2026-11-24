@@ -92,6 +92,12 @@ Each PC has a **6-digit PIN**. Without it nobody can control the PC, even on the
 - **Generate new PIN** (tray menu) disconnects every phone; they will ask for the PIN again.
 - After 5 wrong PINs, the device is blocked for 1 minute.
 
+### Remove the "unsafe site" warning
+The PC has its **own certificate authority**, limited to **local network addresses only**. Trust it **once** on
+each phone and the warning is gone for good, even when the PC's IP changes: in the app **settings** →
+*Tirar o aviso de "site perigoso"* (or tray icon → *Tirar aviso…*, which shows a QR code). On iPhone, open the
+page in **Safari** to install the profile.
+
 ## Phone notification
 
 <p align="center"><img src="docs/notificacao.png" width="400" alt="Example of the phone notification"></p>
