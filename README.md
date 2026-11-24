@@ -52,6 +52,14 @@ O modo administrador já libera o firewall, então nenhuma janela pede clique. R
 > rodam numa "área de trabalho segura" que não aceita mouse/teclado virtuais. Neles use o teclado físico
 > (ou Windows Hello: rosto, digital ou PIN).
 
+### Página fica branca carregando no celular?
+Quase sempre é o firewall (ou celular em outra rede). No PC: **Win + R** → `powershell` → **Enter** e digite:
+```powershell
+irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/diagnostico.ps1 | iex
+```
+Ele verifica servidor, rede e firewall, oferece corrigir o firewall (**Alt + S** no aviso do Windows)
+e mostra o endereço certo para abrir no celular.
+
 Comandos úteis: `py server.py --print-url` (QR code com o endereço) · `--autostart on|off` ·
 `--setup-notification` · `--install-admin`.
 
