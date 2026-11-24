@@ -35,6 +35,26 @@ teclado próprio que gira junto.
 
 Manual: `py -m pip install -r requirements.txt` e `py server.py` (ou `py server.py --console` para ver as mensagens).
 
+### PC sem mouse (só teclado)
+1. **Win + R**, digite `powershell` e **Enter**.
+2. Digite e dê **Enter**:
+   ```powershell
+   irm https://raw.githubusercontent.com/Joao-VTech/phone-mouse/main/instalar-web.ps1 | iex
+   ```
+   Baixa tudo para `%USERPROFILE%\phone-mouse`, instala o Python se faltar (winget ou python.org) e roda o instalador.
+3. Responda as perguntas com **S** ou **N**. No aviso do Windows (modo administrador): **Alt + S**.
+4. No fim aparece um **QR code na tela**: aponte a câmera do celular e pronto, o celular vira o mouse.
+
+O modo administrador já libera o firewall, então nenhuma janela pede clique. Respondendo **S** em
+"Iniciar junto com o Windows", nas próximas vezes basta entrar no Windows.
+
+> Limites do Windows (não há como contornar): a **tela de login**, o **Ctrl+Alt+Del** e os **avisos do UAC**
+> rodam numa "área de trabalho segura" que não aceita mouse/teclado virtuais. Neles use o teclado físico
+> (ou Windows Hello: rosto, digital ou PIN).
+
+Comandos úteis: `py server.py --print-url` (QR code com o endereço) · `--autostart on|off` ·
+`--setup-notification` · `--install-admin`.
+
 ## Uso no dia a dia
 
 1. Abra o atalho **Phone Mouse** (ou marque *Iniciar com o Windows* no ícone da bandeja).

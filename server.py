@@ -290,6 +290,10 @@ def install_admin() -> None:
           "$s=New-ScheduledTaskSettingsSet -MultipleInstances Parallel -ExecutionTimeLimit ([TimeSpan]::Zero)"
           " -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;"
           "Register-ScheduledTask -TaskName $env:TASK -Action $a -Principal $p -Settings $s -Force | Out-Null;"
+          # libera a porta no firewall já na instalação: a janela "Permitir acesso" não aparece
+          "Remove-NetFirewallRule -DisplayName 'Phone Mouse' -EA SilentlyContinue;"
+          "New-NetFirewallRule -DisplayName 'Phone Mouse' -Direction Inbound -Action Allow -Protocol TCP"
+          " -LocalPort $env:PORT -Program $env:TGT -Profile Any | Out-Null;"
           # encerra o servidor antigo (sem admin) que está ocupando a porta
           "Get-NetTCPConnection -LocalPort $env:PORT -State Listen -EA SilentlyContinue |"
           " ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -EA SilentlyContinue }")
@@ -590,12 +594,44 @@ def run_tray():
     tray.run()
 
 
+def print_url_qr() -> None:
+    """Mostra no terminal um QR code com o endereço: o celular abre o controle pela câmera."""
+    import qrcode
+    ip = primary_ip()
+    if not ip:
+        print("Sem rede: conecte o PC ao Wi-Fi/cabo e tente de novo.")
+        return
+    url = f"https://{ip}:{PORT}"
+    qr = qrcode.QRCode(border=2)
+    qr.add_data(url)
+    try:
+        qr.print_ascii(invert=True)
+    except UnicodeEncodeError:
+        pass   # console sem UTF-8: fica só o endereço escrito
+    print(f"\n  Aponte a câmera do celular para o QR code ou digite no navegador:\n\n      {url}\n")
+
+
+def set_autostart(on: bool) -> None:
+    if on:
+        make_shortcut(STARTUP_LNK)
+    elif STARTUP_LNK.exists():
+        STARTUP_LNK.unlink()
+    print("Iniciar com o Windows:", "ligado" if on else "desligado")
+
+
 def main():
     load_config()
     ensure_icons()
     if "--make-desktop-shortcut" in sys.argv:
         make_shortcut(desktop_dir() / "Phone Mouse.lnk")
         print(f"Atalho criado em {desktop_dir()}")
+        return
+    if "--print-url" in sys.argv:
+        print_url_qr()
+        return
+    if "--autostart" in sys.argv:
+        i = sys.argv.index("--autostart")
+        set_autostart(len(sys.argv) > i + 1 and sys.argv[i + 1].lower() in ("on", "sim", "1"))
         return
     if "--setup-notification" in sys.argv:
         open_notification_setup()
