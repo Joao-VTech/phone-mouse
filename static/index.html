@@ -29,6 +29,7 @@
   .ib { width:42px; height:42px; border:0; border-radius:12px; background:transparent; color:var(--mut);
         display:grid; place-items:center; padding:0; }
   .ib:active { background:var(--surface2); color:var(--fg); }
+  .ib.on { background:rgba(59,130,246,.16); color:var(--act); }
   .ib svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 
   #modeSeg { display:grid; grid-template-columns:1fr 1fr; padding:4px; gap:4px; background:var(--surface); border-radius:14px; }
@@ -135,6 +136,8 @@
   <div id="topbar">
     <span id="conn" class="bad">● desconectado</span>
     <div class="icons">
+      <button class="ib air-only" id="alwaysBtn" title="Mover sem segurar"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg></button>
+      <input id="always" type="checkbox" hidden>
       <button class="ib" id="kbBtn" title="Teclado"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7.5 14h9"/></svg></button>
       <button class="ib" id="filesBtn" title="Arquivos"><svg viewBox="0 0 24 24"><path d="M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"/></svg></button>
       <button class="ib" id="full" title="Tela cheia"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -173,7 +176,6 @@
     <div class="set"><span>Velocidade</span><span class="v" id="sensv"></span><input id="sens" type="range" min="2" max="60" value="18"></div>
     <div class="set"><span>Aceleração</span><span class="v" id="accv"></span><input id="acc" type="range" min="0" max="100" value="30"></div>
     <div class="set air-only"><span>Anti-tremor</span><span class="v" id="deadv"></span><input id="dead" type="range" min="0" max="20" value="3"></div>
-    <label class="set air-only"><span>Mover sem segurar</span><input id="always" type="checkbox"></label>
     <div class="set air-only"><span>Calibração do apontador</span><button class="pill" id="recal">Recalibrar</button></div>
     <h3>Conexão</h3>
     <div class="set"><span>Wi-Fi ou cabo USB (Android)</span><button class="pill" id="link"></button></div>
@@ -295,7 +297,24 @@ function applyMode() {
   document.querySelectorAll(".air-only").forEach(el => el.hidden = mode !== "air");   // ajustes só do apontador
   $("clutch").innerHTML = MODES[mode].clutch;
   $("full").hidden = mode !== "pad";
+  updateAlways();
 }
+// ---- "mover sem segurar" (botão no topo, só no Apontador)
+function updateAlways() {
+  const on = $("always").checked;
+  $("alwaysBtn").classList.toggle("on", on);
+  if (mode === "air") $("clutch").innerHTML = on
+    ? '<span class="hint">Movendo sem segurar</span><small>toque = clique · 2 toques = botão direito</small>'
+    : MODES.air.clutch;
+}
+$("alwaysBtn").onclick = () => {
+  const cb = $("always");
+  cb.checked = !cb.checked;
+  saveCfg();
+  updateAlways();
+  navigator.vibrate?.(15);
+  toast(cb.checked ? "Mover sem segurar: ligado" : "Mover sem segurar: desligado (segure para mover)");
+};
 
 // ---- tela cheia (só no Touchpad)
 // orientação (só em tela cheia): vertical -> horizontal -> horizontal para o outro lado -> vertical
