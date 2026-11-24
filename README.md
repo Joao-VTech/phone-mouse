@@ -9,6 +9,10 @@ Touchpad com gestos, apontador por giroscópio, teclado com acentos, **envio de 
 sentidos, tela cheia, modo para jogos e acesso protegido por PIN.
 
 <p align="center">
+  <img src="docs/demo.gif" width="300" alt="Demonstração: o dedo no touchpad do celular rola a página aberta no monitor do PC">
+</p>
+
+<p align="center">
   <img src="docs/tela-touchpad.png" width="230" alt="Touchpad com botões e roda de rolagem">
   <img src="docs/tela-apontador.png" width="230" alt="Modo Apontador">
   <img src="docs/tela-ajustes.png" width="230" alt="Painel de ajustes">
