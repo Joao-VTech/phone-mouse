@@ -391,19 +391,28 @@ def send_notification(wait_network: bool = False) -> bool:
 SETUP_HTML = BASE / "notificacao.html"
 
 
-def open_notification_setup() -> None:
-    """Gera uma página local com QR code (Android) e o tópico (iPhone) e abre no navegador do PC."""
+NTFY_PLAY = "https://play.google.com/store/apps/details?id=io.heckel.ntfy"
+NTFY_APPSTORE = "https://apps.apple.com/us/app/ntfy/id1625396347"
+
+
+def _qr_png_b64(data: str) -> str:
     import base64
-    import html
     import io
     import qrcode
+    buf = io.BytesIO()
+    qrcode.make(data, box_size=8, border=2).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def open_notification_setup() -> None:
+    """Página local: QR para baixar o ntfy (Play Store / App Store) ao lado do QR/tópico para assinar."""
+    import html
 
     cfg = load_config()
     topic = cfg["ntfy_topic"]
-    deep = f"ntfy://ntfy.sh/{topic}?display=Phone%20Mouse"
-    buf = io.BytesIO()
-    qrcode.make(deep, box_size=8, border=2).save(buf, format="PNG")
-    qr = base64.b64encode(buf.getvalue()).decode()
+    qr_sub = _qr_png_b64(f"ntfy://ntfy.sh/{topic}?display=Phone%20Mouse")
+    qr_play = _qr_png_b64(NTFY_PLAY)
+    qr_ios = _qr_png_b64(NTFY_APPSTORE)
     t = html.escape(topic)
     off = "" if cfg.get("notify") else (
         '<p class="warn">⚠️ A notificação está <b>desligada</b> neste PC '
@@ -416,35 +425,42 @@ def open_notification_setup() -> None:
  body {{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }}
  main {{ max-width:860px; margin:0 auto; padding:32px 16px; }}
  h1 {{ font-size:26px; margin:0 0 4px; }} .sub {{ color:var(--mut); margin:0 0 24px; }}
- .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }}
- .card {{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }}
- h2 {{ font-size:18px; margin:0 0 12px; }} ol {{ padding-left:20px; margin:0; }} li {{ margin:6px 0; }}
- .qr {{ display:block; width:220px; max-width:100%; margin:8px auto 12px; background:#fff; padding:8px; border-radius:10px; }}
- .topic {{ display:flex; gap:8px; align-items:center; margin:12px 0; }}
- .topic code {{ flex:1; font-size:18px; padding:10px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--line); word-break:break-all; }}
+ .card {{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }}
+ h2 {{ font-size:18px; margin:0 0 14px; }}
+ .pair {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; }}
+ .step {{ text-align:center; border:1px solid var(--line); border-radius:12px; padding:14px; }}
+ .step b.n {{ display:inline-block; width:26px; height:26px; line-height:26px; border-radius:13px; background:var(--acc); color:#fff; margin-right:6px; }}
+ .step p {{ margin:4px 0 0; color:var(--mut); font-size:14px; }}
+ .qr {{ display:block; width:190px; max-width:100%; margin:10px auto 6px; background:#fff; padding:8px; border-radius:10px; }}
+ .topic {{ display:flex; gap:8px; align-items:center; margin:14px 0 8px; text-align:left; }}
+ .topic code {{ flex:1; font-size:16px; padding:10px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--line); word-break:break-all; }}
  button {{ font:inherit; padding:10px 14px; border:0; border-radius:8px; background:var(--acc); color:#fff; cursor:pointer; }}
+ .steps {{ text-align:left; margin:8px 0 0; padding-left:20px; font-size:14px; }}
  .warn {{ background:#fef3c7; color:#78350f; padding:10px 12px; border-radius:8px; }}
- .foot {{ color:var(--mut); font-size:14px; margin-top:24px; }}
+ .foot {{ color:var(--mut); font-size:14px; margin-top:8px; }}
 </style></head><body><main>
 <h1>Notificação no celular</h1>
-<p class="sub">Assine o tópico deste PC no app <b>ntfy</b> para receber "Phone Mouse pronto - {html.escape(pc_name())}" com o link de acesso.</p>
+<p class="sub">Receba "Phone Mouse pronto - {html.escape(pc_name())}" com o link de acesso sempre que o PC ligar.
+Aponte a câmera do celular para os QR codes, na ordem.</p>
 {off}
-<div class="grid">
- <section class="card"><h2>🤖 Android</h2><ol>
-  <li>Instale o app <b>ntfy</b> pela Play Store.</li>
-  <li>Aponte a câmera do celular para o QR code e toque no link.</li>
-  <li>O app abre e assina o tópico sozinho.</li></ol>
-  <img class="qr" alt="QR code para assinar o tópico no app ntfy" src="data:image/png;base64,{qr}">
- </section>
- <section class="card"><h2>🍎 iPhone</h2><ol>
-  <li>Instale o app <b>ntfy</b> pela App Store e permita notificações.</li>
-  <li>No app, toque em <b>+</b>.</li>
-  <li>Digite o tópico abaixo e toque em <b>Subscribe</b>.</li></ol>
-  <div class="topic"><code id="t">{t}</code><button onclick="navigator.clipboard.writeText('{t}').then(()=>this.textContent='Copiado!')">Copiar</button></div>
-  <p class="sub">Dica: copie aqui e cole no celular (ex.: pela área de transferência compartilhada ou mandando para você mesmo).</p>
- </section>
-</div>
-<p class="foot">Para testar: clique com o botão direito no ícone do Phone Mouse (perto do relógio) → <b>Enviar link para o celular</b>.<br>
+<section class="card"><h2>🤖 Android</h2><div class="pair">
+ <div class="step"><b class="n">1</b><b>Baixe o ntfy</b>
+  <img class="qr" alt="QR code do ntfy na Google Play" src="data:image/png;base64,{qr_play}">
+  <p>Abre a Google Play</p></div>
+ <div class="step"><b class="n">2</b><b>Assine o tópico</b>
+  <img class="qr" alt="QR code para assinar o tópico no ntfy" src="data:image/png;base64,{qr_sub}">
+  <p>Abre o ntfy e assina sozinho</p></div>
+</div></section>
+<section class="card"><h2>🍎 iPhone</h2><div class="pair">
+ <div class="step"><b class="n">1</b><b>Baixe o ntfy</b>
+  <img class="qr" alt="QR code do ntfy na App Store" src="data:image/png;base64,{qr_ios}">
+  <p>Abre a App Store · permita notificações</p></div>
+ <div class="step"><b class="n">2</b><b>Assine o tópico</b>
+  <div class="topic"><code>{t}</code><button onclick="navigator.clipboard.writeText('{t}').then(()=>this.textContent='Copiado!')">Copiar</button></div>
+  <ol class="steps"><li>No ntfy, toque em <b>+</b></li><li>Digite o tópico acima</li><li>Toque em <b>Subscribe</b></li></ol>
+  <p>O iPhone não aceita assinar por QR code.</p></div>
+</div></section>
+<p class="foot">Para testar: ícone do Phone Mouse perto do relógio → <b>Enviar link para o celular</b>.<br>
 O tópico funciona como uma senha: não o publique. Para usar o mesmo tópico em outro PC, copie o <code>config.json</code>.</p>
 </main></body></html>"""
     SETUP_HTML.write_text(page, encoding="utf-8")

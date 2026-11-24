@@ -117,9 +117,8 @@
 <div class="overlay" id="start">
   <div class="big">Phone Mouse</div>
   <div>Dois modos, alterne pelo botão azul no topo:<br><br>
-    🔦 <b>Apontador</b>: gire o pulso para apontar, como um laser.<br>
-    🖱️ <b>Mouse de mesa</b>: deslize o celular deitado na mesa.<br>
-    👆 <b>Touchpad</b>: passe o dedo na tela, como no notebook.</div>
+    👆 <b>Touchpad</b>: passe o dedo na tela, como no notebook.<br>
+    🔦 <b>Apontador</b>: gire o pulso para apontar, como um laser.</div>
   <button id="go">Iniciar</button>
   <div id="err" style="color:#f87171"></div>
 </div>
@@ -137,7 +136,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const cfgIds = ["sens","acc","dead","always"];
-const PM_KEYS = ["pm-cfg", "pm-mode", "pm-map", "pm-map-desk"];
+const PM_KEYS = ["pm-cfg", "pm-mode", "pm-map"];
 
 // Wi-Fi e cabo usam endereços diferentes (cada um com seu armazenamento), então ao
 // alternar as configurações e calibrações viajam junto na URL (#cfg=...).
@@ -163,10 +162,6 @@ function saveCfg() {
 }
 cfgIds.forEach(k => $(k).addEventListener("input", saveCfg)); saveCfg();
 
-// estado do modo Mouse de mesa (precisa existir antes de applyMode())
-const desk = { v:{x:0, y:0}, dir:{x:0, y:0}, still:0 };
-function resetDesk() { desk.v.x = desk.v.y = 0; desk.dir.x = desk.dir.y = 0; desk.still = 0; }
-
 // ---- modos
 const MODES = {
   air: {
@@ -180,36 +175,24 @@ const MODES = {
         text:"Ao tocar em Pronto, aponte devagar o topo do celular de baixo para cima (levante a ponta) e pare." },
     ],
   },
-  desk: {
-    label: "🖱️ Modo: Mouse de mesa  ⇄",
-    storeKey: "pm-map-desk",
-    clutch: 'SEGURE AQUI<small>e deslize o celular na mesa<br>1 toque = clique esquerdo · 2 toques = clique direito</small>',
-    steps: [
-      { key:"x", arrow:"➡️", title:"Deslize para a DIREITA",
-        text:"Deite o celular na mesa, com o topo apontando para o monitor. Ao tocar em Pronto, deslize uns 15 cm para a direita, num movimento firme, e pare." },
-      { key:"y", arrow:"⬆️", title:"Deslize para FRENTE",
-        text:"Ao tocar em Pronto, empurre o celular uns 15 cm para frente (em direção ao monitor) e pare." },
-    ],
-  },
   pad: {
     label: "👆 Modo: Touchpad  ⇄",
     clutch: 'TOUCHPAD<small>1 dedo = mover · toque = clique · toque + toque e arrasta = selecionar<br>2 dedos: toque = direito, arrastar = rolar · 3 dedos = botão do meio<br>deslize da borda até o meio = abre/guarda o teclado</small>',
     steps: null,   // não precisa de calibração
   },
 };
-const ORDER = ["air", "desk", "pad"];
+const ORDER = ["pad", "air"];   // Touchpad primeiro, depois Apontador
 const needsCal = () => MODES[mode].steps && !maps[mode];
-let mode = store.get("pm-mode", "air");
-if (!MODES[mode]) mode = "air";
-// mapeamento de eixos aprendido na calibração, por modo: { x:{axis,sign}, y:{axis,sign} }
-const maps = { air: store.get(MODES.air.storeKey, null), desk: store.get(MODES.desk.storeKey, null) };
+let mode = store.get("pm-mode", "pad");
+if (!MODES[mode]) mode = "pad";   // ex.: "desk" (Mouse de mesa, descontinuado)
+// mapeamento de eixos aprendido na calibração do Apontador: { x:{axis,sign}, y:{axis,sign} }
+const maps = { air: store.get(MODES.air.storeKey, null) };
 
 function applyMode() {
   $("mode").textContent = MODES[mode].label;
   $("clutch").innerHTML = MODES[mode].clutch;
   $("recal").hidden = !MODES[mode].steps;
   $("full").hidden = mode !== "pad";
-  resetDesk();
 }
 
 // ---- tela cheia (só no Touchpad)
@@ -536,15 +519,14 @@ function onMotion(e) {
   if (!dt) return;
 
   if (calibrating) {
-    const r = e.rotationRate || {}, a = e.acceleration || {};
+    const r = e.rotationRate || {};
     calibrating.samples.push({ dt,
-      rot: { alpha: r.alpha || 0, beta: r.beta || 0, gamma: r.gamma || 0 },
-      acc: { x: a.x || 0, y: a.y || 0, z: a.z || 0 } });
+      rot: { alpha: r.alpha || 0, beta: r.beta || 0, gamma: r.gamma || 0 } });
     return;
   }
   const map = maps[mode];
   if (!map) return;
-  if (mode === "air") airMove(e, dt, map); else deskMove(e, dt, map);
+  if (mode === "air") airMove(e, dt, map);
 }
 
 // Apontador: velocidade angular (graus/s) -> pixels
@@ -558,29 +540,6 @@ function airMove(e, dt, map) {
   send({t:"m", x: wx * dt * gain, y: wy * dt * gain});
 }
 
-// Mouse de mesa: integra a aceleração linear (m/s²) em velocidade (m/s), com
-// truques para conter o desvio: zera quando o celular para e bloqueia o "ricochete"
-// (a frenagem no fim do movimento não pode empurrar o cursor de volta).
-function deskMove(e, dt, map) {
-  const a = e.acceleration;
-  if (!a || a.x == null) { $("rate").textContent = "sem acelerômetro linear"; return; }
-  if (!isActive()) { resetDesk(); return; }
-  const acc = { x: map.x.sign * (a[map.x.axis] || 0), y: map.y.sign * (a[map.y.axis] || 0) };
-  const th = 0.08 + +$("dead").value * 0.04;              // m/s² abaixo disso = ruído
-
-  desk.still = Math.hypot(acc.x, acc.y) < th ? desk.still + dt : 0;
-  if (desk.still > 0.06) { resetDesk(); return; }          // parado => velocidade zero
-
-  for (const k of ["x", "y"]) {
-    if (Math.abs(acc[k]) > th) desk.v[k] += acc[k] * dt;
-    desk.v[k] *= Math.exp(-dt * 2);                         // atrito
-    if (!desk.dir[k] && Math.abs(desk.v[k]) > 0.02) desk.dir[k] = Math.sign(desk.v[k]);
-    if (desk.dir[k] && desk.v[k] * desk.dir[k] < 0) desk.v[k] = 0;   // anti-ricochete
-  }
-  const speed = Math.hypot(desk.v.x, desk.v.y);
-  const gain = +$("sens").value * 250 * (1 + (+$("acc").value / 100) * speed / 0.3);
-  send({t:"m", x: desk.v.x * dt * gain, y: desk.v.y * dt * gain});
-}
 setInterval(() => { const t = performance.now(); $("rate").textContent = `sensor: ${Math.round(n * 1000 / (t - tick))} Hz`; n = 0; tick = t; }, 1000);
 
 // ---- calibração
@@ -601,21 +560,11 @@ function recordGesture(ms) {
 
 // Descobre qual eixo do sensor corresponde ao gesto e em que sentido.
 function analyze(samples, exclude) {
-  if (mode === "air") {
-    // apontador: o eixo que mais girou (ângulo integrado)
-    const ang = { alpha:0, beta:0, gamma:0 };
-    for (const s of samples) for (const k in ang) ang[k] += s.rot[k] * s.dt;
-    const best = Object.keys(ang).filter(k => k !== exclude).sort((a, b) => Math.abs(ang[b]) - Math.abs(ang[a]))[0];
-    return Math.abs(ang[best]) < 10 ? null : { axis: best, sign: Math.sign(ang[best]) };
-  }
-  // mesa: o eixo com maior pico de aceleração; o sentido é o do primeiro pico
-  // (ao começar a deslizar, a aceleração aponta para onde o celular vai)
-  const peak = { x:0, y:0, z:0 };
-  for (const s of samples) for (const k in peak) peak[k] = Math.max(peak[k], Math.abs(s.acc[k]));
-  const best = Object.keys(peak).filter(k => k !== exclude).sort((a, b) => peak[b] - peak[a])[0];
-  if (peak[best] < 0.6) return null;
-  const first = samples.find(s => Math.abs(s.acc[best]) > peak[best] * 0.4);
-  return { axis: best, sign: Math.sign(first.acc[best]) };
+  // o eixo que mais girou (ângulo integrado) é o desta direção
+  const ang = { alpha:0, beta:0, gamma:0 };
+  for (const s of samples) for (const k in ang) ang[k] += s.rot[k] * s.dt;
+  const best = Object.keys(ang).filter(k => k !== exclude).sort((a, b) => Math.abs(ang[b]) - Math.abs(ang[a]))[0];
+  return Math.abs(ang[best]) < 10 ? null : { axis: best, sign: Math.sign(ang[best]) };
 }
 
 let calRunning = false;
@@ -626,12 +575,12 @@ async function calibrate() {
   const steps = MODES[mode].steps, result = {};
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
-    $("calStep").textContent = `Calibração ${mode === "air" ? "do Apontador" : "do Mouse de mesa"} · ${i + 1}/${steps.length}`;
+    $("calStep").textContent = `Calibração do Apontador · ${i + 1}/${steps.length}`;
     $("calArrow").textContent = s.arrow; $("calTitle").textContent = s.title; $("calText").textContent = s.text;
     $("calBtn").hidden = false;
     await new Promise(r => $("calBtn").onclick = r);
     $("calBtn").hidden = true;
-    $("calText").textContent = mode === "air" ? "Gire agora…" : "Deslize agora…";
+    $("calText").textContent = "Gire agora…";
     const found = analyze(await recordGesture(2000), s.key === "y" ? result.x.axis : null);
     if (!found) {
       $("calText").textContent = "Não detectei movimento suficiente. Tente de novo, com um gesto mais firme.";
@@ -643,7 +592,6 @@ async function calibrate() {
   // Y positivo na tela = para baixo; o gesto gravado foi para cima/frente
   result.y.sign = -result.y.sign;
   maps[mode] = result; store.set(MODES[mode].storeKey, result);
-  resetDesk();
   $("calArrow").textContent = "✅"; $("calTitle").textContent = "Calibrado!";
   $("calText").textContent = "Segure o botão grande e mova o celular.";
   await sleep(1500);

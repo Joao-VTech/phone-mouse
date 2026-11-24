@@ -8,7 +8,6 @@ Use o celular como mouse e teclado do PC (Windows), pelo navegador — sem insta
 |---|---|
 | 👆 **Touchpad** | passa o dedo na tela, como no notebook |
 | 🔦 **Apontador** | gira o pulso e aponta, como um laser (giroscópio) |
-| 🖱️ **Mouse de mesa** | desliza o celular deitado na mesa (acelerômetro) |
 
 ### Gestos do Touchpad
 - 1 dedo arrastando: move o cursor
@@ -70,8 +69,8 @@ Comandos úteis: `py server.py --print-url` (QR code com o endereço) · `--auto
 3. Na primeira vez, aceite o aviso de certificado (é autoassinado) e toque em **Iniciar**.
 
 ### Notificação no celular
-Na primeira execução abre uma página explicando como assinar a notificação no app
-**[ntfy](https://ntfy.sh)**: **QR code no Android** (assina com um toque) e o **tópico para copiar no iPhone**
+Na primeira execução abre uma página com QR codes para **baixar o [ntfy](https://ntfy.sh)** (Google Play e
+App Store) e, ao lado, para **assinar o tópico**: QR code no Android (assina com um toque) e o **tópico para copiar no iPhone**
 (no app: **+** → tópico → **Subscribe**). Para abrir de novo: ícone da bandeja →
 *Configurar notificação no celular* (ou `py server.py --setup-notification`). Para usar o **mesmo tópico em vários PCs**, copie o `config.json`
 entre eles. Para desligar, mude `"notify"` para `false`. Para trocar o nome mostrado, adicione
