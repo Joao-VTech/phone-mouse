@@ -83,7 +83,8 @@
   .modes { display:grid; gap:10px; width:100%; max-width:360px; text-align:left; }
   .modes div { background:var(--surface); border-radius:14px; padding:12px 14px; color:var(--mut); font-size:14px; }
   .modes b { color:var(--fg); display:block; font-size:15px; }
-  #cal, #pinBox { z-index:35; }   /* calibração e PIN sempre por cima dos ajustes */
+  #cal, #pinBox, #calAsk { z-index:35; }
+  .overlay button.ghost { background:transparent; color:var(--mut); font-weight:500; padding:10px 24px; margin-top:-8px; }   /* calibração e PIN sempre por cima dos ajustes */
   #bar, #upBar { width:80%; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; }
   #bar div { height:100%; width:0; background:var(--act); }
   #upBar div { height:100%; width:0; background:var(--ok); }
@@ -235,6 +236,17 @@
   <div id="calText"></div>
   <div id="bar" hidden><div></div></div>
   <button id="calBtn">Pronto</button>
+  <button class="ghost" id="calCancel">Cancelar</button>
+</div>
+
+<!-- sugestão de calibrar (primeira vez no Apontador) -->
+<div class="overlay" id="calAsk" hidden>
+  <div class="arrow">🎯</div>
+  <div class="big">Calibrar o apontador?</div>
+  <div class="lead">Leva uns 10 segundos: você gira o celular para a direita e para cima, e o app aprende os
+    eixos do seu aparelho. Sem calibrar, o apontador não move o cursor.</div>
+  <button id="calAskYes">Calibrar agora</button>
+  <button class="ghost" id="calAskNo">Agora não</button>
 </div>
 
 <script>
@@ -305,6 +317,10 @@ function applyMode() {
 function updateAlways() {
   const on = $("always").checked;
   $("alwaysBtn").classList.toggle("on", on);
+  if (mode === "air" && !maps.air) {
+    $("clutch").innerHTML = '<span class="hint">Apontador não calibrado</span><small>toque aqui para calibrar</small>';
+    return;
+  }
   if (mode === "air") $("clutch").innerHTML = on
     ? '<span class="hint">Movendo sem segurar</span><small>toque = clique · 2 toques = botão direito</small>'
     : MODES.air.clutch;
@@ -366,7 +382,7 @@ function setMode(m) {
   store.set("pm-mode", mode);
   applyMode();
   navigator.vibrate?.(20);
-  if (needsCal()) calibrate();
+  suggestCalibration();
 }
 document.querySelectorAll("#modeSeg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
 applyMode();
@@ -471,6 +487,7 @@ const release = e => {
   if (!holding || mode === "pad") return;
   holding = false; clutch.classList.remove("on");
   if (e.type !== "pointerup" || performance.now() - pressT > TAP_MS) return;   // foi movimento, não toque
+  if (!maps.air) { askCalibrate(); return; }   // sem calibração, o toque oferece calibrar
   if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; click("right"); }    // segundo toque
   else tapTimer = setTimeout(() => { tapTimer = null; click("left"); }, DOUBLE_MS);
 };
@@ -795,24 +812,36 @@ let calRunning = false;
 async function calibrate() {
   if (calRunning || !MODES[mode].steps) return;
   calRunning = true;
+  let cancelled = false, calDone = null;
   const ov = $("cal"); ov.hidden = false;
+  $("calCancel").hidden = false;
+  $("calCancel").onclick = () => { cancelled = true; ov.hidden = true; calDone?.(); };   // cancela em qualquer passo (fecha na hora)
+  const abort = () => {
+    calibrating = null; $("bar").hidden = true; ov.hidden = true; calRunning = false;
+    applyMode();   // mostra "não calibrado" se ainda não houver calibração
+  };
   const steps = MODES[mode].steps, result = {};
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     $("calStep").textContent = `Calibração do Apontador · ${i + 1}/${steps.length}`;
     $("calArrow").textContent = s.arrow; $("calTitle").textContent = s.title; $("calText").textContent = s.text;
     $("calBtn").hidden = false;
-    await new Promise(r => $("calBtn").onclick = r);
+    await new Promise(r => { calDone = r; $("calBtn").onclick = r; });
+    if (cancelled) return abort();
     $("calBtn").hidden = true;
     $("calText").textContent = "Gire agora…";
     const found = analyze(await recordGesture(2000), s.key === "y" ? result.x.axis : null);
+    if (cancelled) return abort();
     if (!found) {
       $("calText").textContent = "Não detectei movimento suficiente. Tente de novo, com um gesto mais firme.";
-      await sleep(1800); i--; continue;
+      await sleep(1800); i--;
+      if (cancelled) return abort();
+      continue;
     }
     result[s.key] = found;
     navigator.vibrate?.(30);
   }
+  $("calCancel").hidden = true;
   // Y positivo na tela = para baixo; o gesto gravado foi para cima/frente
   result.y.sign = -result.y.sign;
   maps[mode] = result; store.set(MODES[mode].storeKey, result);
@@ -821,6 +850,20 @@ async function calibrate() {
   await sleep(1500);
   ov.hidden = true;
   calRunning = false;
+  applyMode();
+}
+
+// ---- sugestão de calibrar: na primeira vez que abre o Apontador
+function askCalibrate() {
+  $("calAsk").hidden = false;
+  $("calAskYes").onclick = () => { $("calAsk").hidden = true; calibrate(); };
+  $("calAskNo").onclick = () => { $("calAsk").hidden = true; applyMode(); };
+}
+function suggestCalibration() {
+  if (!needsCal()) return;
+  if (store.get("pm-cal-asked", false)) return;   // só sugere uma vez; depois fica a dica na área de toque
+  store.set("pm-cal-asked", true);
+  askCalibrate();
 }
 $("recal").onclick = () => { $("settings").hidden = true; calibrate(); };   // fecha os ajustes e calibra na hora
 
@@ -835,7 +878,7 @@ $("go").onclick = async () => {
     connect();
     navigator.wakeLock?.request("screen").catch(() => {});
     $("start").remove();
-    if (needsCal()) calibrate();
+    suggestCalibration();
   } catch (err) { $("err").textContent = err.message; }
 };
 </script>
