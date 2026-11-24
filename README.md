@@ -9,8 +9,9 @@ Touchpad com gestos, apontador por giroscópio, teclado com acentos, **envio de 
 sentidos, tela cheia, modo para jogos e acesso protegido por PIN.
 
 <p align="center">
-  <img src="docs/tela-touchpad.png" width="260" alt="Tela principal: touchpad, botões e roda de rolagem">
-  <img src="docs/tela-ajustes.png" width="260" alt="Painel de ajustes">
+  <img src="docs/tela-touchpad.png" width="230" alt="Touchpad com botões e roda de rolagem">
+  <img src="docs/tela-apontador.png" width="230" alt="Modo Apontador">
+  <img src="docs/tela-ajustes.png" width="230" alt="Painel de ajustes">
 </p>
 
 ## Instalação rápida (Windows)
@@ -57,6 +58,11 @@ O instalador: instala o Python se faltar (winget ou python.org) e as dependênci
   (na vertical: bordas laterais · na horizontal: bordas de cima/baixo)
 - ⛶ tela cheia e ⟳ para virar a tela (vertical → horizontal → outro lado)
 
+<p align="center">
+  <img src="docs/tela-cheia.png" width="230" alt="Touchpad em tela cheia">
+  <img src="docs/tela-horizontal.png" width="230" alt="Touchpad em tela cheia, girado na horizontal">
+</p>
+
 ### Teclado
 Digita no PC com acentos, corretor e emoji. Barra com Esc, Tab, Ctrl, Alt, Shift, Win, setas e Del
 (toque no modificador e depois na tecla, ex.: Ctrl → `c`). Com a tela girada pela página, usa um
@@ -77,6 +83,9 @@ Cada PC tem um **PIN de 6 dígitos**. Sem ele ninguém controla o PC, mesmo esta
 - Após 5 PINs errados, o aparelho fica bloqueado por 1 minuto.
 
 ## Notificação no celular
+
+<p align="center"><img src="docs/notificacao.png" width="400" alt="Exemplo da notificação no celular"></p>
+
 Na primeira execução abre uma página com QR codes para **baixar o [ntfy](https://ntfy.sh)** (Google Play e
 App Store) e, ao lado, para **assinar o tópico** (Android: QR code; iPhone: tópico para copiar → no app
 **+** → tópico → **Subscribe**). Para abrir de novo: ícone da bandeja → *Configurar notificação no celular*.

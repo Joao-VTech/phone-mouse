@@ -9,8 +9,9 @@ install on the phone**. Touchpad with gestures, gyroscope pointer, full keyboard
 **file transfer both ways**, fullscreen, game-friendly admin mode and PIN-protected access.
 
 <p align="center">
-  <img src="docs/tela-touchpad.png" width="260" alt="Main screen: touchpad, buttons and scroll wheel">
-  <img src="docs/tela-ajustes.png" width="260" alt="Settings panel">
+  <img src="docs/tela-touchpad.png" width="230" alt="Touchpad with buttons and scroll wheel">
+  <img src="docs/tela-apontador.png" width="230" alt="Pointer mode">
+  <img src="docs/tela-ajustes.png" width="230" alt="Settings panel">
 </p>
 
 > The interface is currently in **Brazilian Portuguese**. Contributions with translations are welcome!
@@ -60,6 +61,11 @@ The installer: installs Python if missing (winget or python.org) and the depende
   (portrait: side edges · landscape: top/bottom edges)
 - ⛶ fullscreen and ⟳ to rotate the screen (portrait → landscape → other side)
 
+<p align="center">
+  <img src="docs/tela-cheia.png" width="230" alt="Fullscreen touchpad">
+  <img src="docs/tela-horizontal.png" width="230" alt="Fullscreen touchpad rotated to landscape">
+</p>
+
 ### Keyboard
 Types on the PC with accents, autocorrect and emoji. Bar with Esc, Tab, Ctrl, Alt, Shift, Win, arrows
 and Del (tap the modifier, then the key, e.g. Ctrl → `c`). When the page itself is rotated, a built-in
@@ -80,6 +86,9 @@ Each PC has a **6-digit PIN**. Without it nobody can control the PC, even on the
 - After 5 wrong PINs, the device is blocked for 1 minute.
 
 ## Phone notification
+
+<p align="center"><img src="docs/notificacao.png" width="400" alt="Example of the phone notification"></p>
+
 On first run a page opens with QR codes to **download [ntfy](https://ntfy.sh)** (Google Play and App
 Store) and, next to them, to **subscribe to your topic** (Android: QR code; iPhone: copy the topic →
 in the app **+** → topic → **Subscribe**). To open it again: tray icon → *Configurar notificação no celular*.
