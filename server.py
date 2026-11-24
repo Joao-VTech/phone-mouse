@@ -189,6 +189,19 @@ def local_ips() -> list[str]:
     return sorted(ip for ip in ips if not ip.startswith("127."))
 
 
+def physical_addresses() -> list[tuple[str, str]]:
+    """(ip, nome da placa) das placas de rede FÍSICAS conectadas (sem WSL, VirtualBox, etc.)."""
+    ps = ("Get-NetAdapter -Physical | Where-Object Status -eq 'Up' | ForEach-Object {"
+          " $n=$_.Name; Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -EA SilentlyContinue |"
+          " Where-Object { $_.IPAddress -notlike '169.254.*' } | ForEach-Object { \"$($_.IPAddress)|$n\" } }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                             timeout=15, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [tuple(line.strip().split("|", 1)) for line in out.splitlines() if "|" in line]
+
+
 def ensure_cert(ips: list[str]) -> None:
     if CERT.exists() and KEY.exists():
         return
@@ -439,6 +452,86 @@ O tópico funciona como uma senha: não o publique. Para usar o mesmo tópico em
     subprocess.Popen(["explorer.exe", str(SETUP_HTML)])
 
 
+# ---------------------------------------------------------------- QR do endereço + mudança de rede
+ADDR_HTML = BASE / "endereco.html"
+
+
+def open_address_page(reason: str = "") -> None:
+    """Abre no PC uma página com QR code do endereço atual (o celular abre pela câmera)."""
+    import base64
+    import html
+    import io
+    import qrcode
+
+    ip = primary_ip()
+    if not ip:
+        return
+    url = f"https://{ip}:{PORT}"
+    buf = io.BytesIO()
+    qrcode.make(url, box_size=10, border=2).save(buf, format="PNG")
+    qr = base64.b64encode(buf.getvalue()).decode()
+    others = [(a, n) for a, n in physical_addresses() if a != ip]
+    alt = ""
+    if others:
+        items = "".join(f"<li><code>https://{html.escape(a)}:{PORT}</code> <span>({html.escape(n)})</span></li>"
+                        for a, n in others)
+        alt = (f"<div class='alt'><b>Não abriu?</b> O PC está em mais de uma rede. Se o celular estiver na outra, "
+               f"use:<ul>{items}</ul></div>")
+    note = f"<p class='why'>{html.escape(reason)}</p>" if reason else ""
+    page = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Phone Mouse - endereço</title>
+<style>
+ :root {{ --bg:#f6f7f9; --fg:#1b1d21; --card:#fff; --mut:#5b6270; --line:#e3e6ea; }}
+ @media (prefers-color-scheme: dark) {{ :root {{ --bg:#111317; --fg:#e8eaee; --card:#1a1d23; --mut:#9aa1ad; --line:#2a2f37; }} }}
+ body {{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }}
+ main {{ max-width:560px; margin:0 auto; padding:32px 16px; text-align:center; }}
+ h1 {{ font-size:26px; margin:0 0 6px; }} .why {{ color:var(--mut); margin:0 0 16px; }}
+ .qr {{ width:300px; max-width:90vw; background:#fff; padding:10px; border-radius:14px; }}
+ .url {{ font-size:22px; font-weight:600; margin:14px 0 4px; word-break:break-all; }}
+ .alt {{ text-align:left; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-top:20px; }}
+ .alt ul {{ margin:8px 0 0; padding-left:20px; }} .alt span {{ color:var(--mut); }}
+ .foot {{ color:var(--mut); font-size:14px; margin-top:20px; }}
+</style></head><body><main>
+<h1>Abra no celular</h1>{note}
+<img class="qr" alt="QR code com o endereço do Phone Mouse" src="data:image/png;base64,{qr}">
+<div class="url">{html.escape(url)}</div>
+<p class="foot">Aponte a câmera do celular para o QR code. O celular precisa estar na mesma rede do PC.<br>
+Esta página pode ser fechada (Alt+F4).</p>
+{alt}
+</main></body></html>"""
+    ADDR_HTML.write_text(page, encoding="utf-8")
+    subprocess.Popen(["explorer.exe", str(ADDR_HTML)])
+
+
+def check_network_change(state: dict, on_change) -> None:
+    """Compara o endereço atual com o último; se mudou (ex.: cabo -> Wi-Fi), chama on_change."""
+    ip = primary_ip()
+    if ip and ip != state.get("ip"):
+        old, state["ip"] = state.get("ip"), ip
+        if old:
+            on_change(old, ip)
+
+
+def watch_network(on_change, interval: float = 5) -> None:
+    state = {"ip": primary_ip()}
+    while True:
+        time.sleep(interval)
+        try:
+            check_network_change(state, on_change)
+        except Exception as e:   # o vigia nunca pode derrubar o servidor
+            print(f"[rede] erro ao verificar: {e}")
+
+
+def handle_network_change(old: str, new: str, tray_notify=None) -> None:
+    print(f"[rede] endereço mudou: {old} -> {new}")
+    url = f"https://{new}:{PORT}"
+    send_notification()
+    if tray_notify:
+        tray_notify(f"A rede mudou. Novo endereço: {url}")
+    if clients["n"] == 0:   # nenhum celular conectado: mostra o QR novo na tela
+        open_address_page(f"A rede do PC mudou ({old} → {new}). Use o endereço novo:")
+
+
 # ---------------------------------------------------------------- handlers
 async def index(_req):
     return web.FileResponse(BASE / "static" / "index.html", headers={"Cache-Control": "no-cache"})
@@ -462,9 +555,13 @@ async def icon(_req):
     return web.FileResponse(ICON_PNG)
 
 
+clients = {"n": 0}   # celulares conectados agora
+
+
 async def ws_handler(req):
     ws = web.WebSocketResponse(heartbeat=10)
     await ws.prepare(req)
+    clients["n"] += 1
     print(f"[+] conectado: {req.remote} | {req.headers.get('User-Agent', '?')}")
     try:
         async for msg in ws:
@@ -488,6 +585,7 @@ async def ws_handler(req):
         # solta botões presos se a conexão cair
         for b in ("left", "right", "middle"):
             button(b, False)
+        clients["n"] -= 1
         print(f"[-] desconectado: {req.remote}")
     return ws
 
@@ -530,6 +628,7 @@ def run_console():
     ips = local_ips()
     print_banner(ips)
     threading.Thread(target=send_notification, daemon=True).start()
+    threading.Thread(target=watch_network, args=(handle_network_change,), daemon=True).start()
     web.run_app(build_app(), host="0.0.0.0", port=PORT, ssl_context=ssl_ctx(), print=None)
 
 
@@ -571,13 +670,14 @@ def run_tray():
         icon.stop()
 
     menu = pystray.Menu(
-        pystray.MenuItem(lambda _: f"Wi-Fi: https://{primary_ip() or '?'}:{PORT}", None, enabled=False),
+        pystray.MenuItem(lambda _: f"Endereço: https://{primary_ip() or '?'}:{PORT}", None, enabled=False),
         pystray.MenuItem(lambda _: "Cabo: conectado" if usb_state["device"] else
                          ("Cabo: sem celular" if ADB else "Cabo: adb não instalado"), None, enabled=False),
         pystray.MenuItem("Modo administrador: ativo" if is_admin() else
                          "Modo administrador: desligado", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Enviar link para o celular", lambda: notify_bg(), default=True),
+        pystray.MenuItem("Mostrar QR do endereço", lambda: open_address_page()),
         pystray.MenuItem("Configurar notificação no celular", lambda: open_notification_setup()),
         pystray.MenuItem("Ativar modo administrador (jogos e apps admin)", lambda: install_admin(),
                          visible=not is_admin()),
@@ -586,6 +686,8 @@ def run_tray():
     )
     tray = pystray.Icon("phone-mouse", Image.open(ICON_PNG), "Phone Mouse", menu)
     notify_bg(wait=True)
+    threading.Thread(target=watch_network, daemon=True,
+                     args=(lambda o, n: handle_network_change(o, n, lambda m: tray.notify(m, "Phone Mouse")),)).start()
     cfg = load_config()
     if not cfg.get("setup_shown"):   # primeira vez neste PC: mostra como assinar a notificação
         cfg["setup_shown"] = True

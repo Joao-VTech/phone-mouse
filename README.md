@@ -78,7 +78,12 @@ entre eles. Para desligar, mude `"notify"` para `false`. Para trocar o nome most
 `"pc_name": "Sala"`.
 
 ### Ícone da bandeja
-Enviar link para o celular · Configurar notificação no celular · Iniciar com o Windows · Ativar modo administrador · Sair.
+Enviar link para o celular · Mostrar QR do endereço · Configurar notificação no celular · Iniciar com o Windows · Ativar modo administrador · Sair.
+
+### Troca de rede (cabo ↔ Wi-Fi)
+O servidor percebe sozinho quando o endereço do PC muda: reenvia a notificação com o link novo e,
+se nenhum celular estiver conectado, abre na tela um **QR code com o endereço novo** (lista também os
+endereços das outras placas de rede, caso PC e celular estejam em redes diferentes).
 
 ### Conexão
 - **Wi-Fi:** celular e PC na mesma rede.
