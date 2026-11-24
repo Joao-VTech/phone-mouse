@@ -24,6 +24,11 @@ To uninstall: *Settings → Apps → Phone Mouse*.
 
 > The installer is not digitally signed yet, so Windows may show "Windows protected your PC":
 > click **More info → Run anyway**.
+>
+> **Checked on VirusTotal:** [1 of 70 antivirus engines](https://www.virustotal.com/gui/file/5c112408e8194d40c6a815f5ce82ac2c8073fdb5fd2a8d839404e5140c4a00da/detection)
+> flagged the v1.2.1 installer (only Kingsoft, with a generic detection, a common false positive for packaged
+> Python programs). **Microsoft Defender detects nothing**. All the code is in this repository, and each
+> installer's SHA-256 is in the [release](https://github.com/Joao-VTech/phone-mouse/releases/latest) notes.
 
 **From PowerShell (keyboard-only friendly):** **Win + R** → type `powershell` → **Enter**, then paste/type:
 

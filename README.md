@@ -22,6 +22,11 @@ Para desinstalar: *Configurações → Aplicativos → Phone Mouse*.
 
 > Como o instalador ainda não tem assinatura digital, o Windows pode mostrar "O Windows protegeu o computador":
 > clique em **Mais informações → Executar assim mesmo**.
+>
+> **Verificado no VirusTotal:** [1 de 70 antivírus](https://www.virustotal.com/gui/file/5c112408e8194d40c6a815f5ce82ac2c8073fdb5fd2a8d839404e5140c4a00da/detection)
+> marcou o instalador da v1.2.1 (só o Kingsoft, com uma detecção genérica, um falso positivo comum em
+> programas Python empacotados). O **Microsoft Defender não detecta nada**. O código está todo aqui no repositório,
+> e o SHA-256 de cada instalador fica nas notas da [release](https://github.com/Joao-VTech/phone-mouse/releases/latest).
 
 **Pelo PowerShell (funciona só com teclado):** **Win + R** → digite `powershell` → **Enter**, e cole/digite:
 
