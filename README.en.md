@@ -89,14 +89,31 @@ keyboard that rotates with it is used.
 Each PC has a **6-digit PIN**. Without it nobody can control the PC, even on the same network.
 - **Scanning the QR code on the PC screen pairs the phone** (the PIN is inside the QR); the phone remembers it.
 - Or type the PIN: it is shown in the **tray icon**, on the QR code page and by `py server.py --pin`.
+- The PIN is only used to **pair**: it is sent once, inside the encrypted connection (never in the URL),
+  and the phone gets its own session. So it doesn't end up in browser history or logs.
 - **Generate new PIN** (tray menu) disconnects every phone; they will ask for the PIN again.
-- After 5 wrong PINs, the device is blocked for 1 minute.
+- **PIN guessing protection:** after 5 wrong PINs the device is blocked (1 min, then 2, 4, 8... up to 1 h);
+  the whole network can only get it wrong 10 times per minute; and after 30 wrong PINs the PC **changes
+  the PIN by itself** and shows a notice (phones already paired keep working).
+- The PC only accepts connections from the **local network** (and the USB cable); requests from the
+  internet are refused.
 
 ### Remove the "unsafe site" warning
 The PC has its **own certificate authority**, limited to **local network addresses only**. Trust it **once** on
 each phone and the warning is gone for good, even when the PC's IP changes: in the app **settings** →
 *Tirar o aviso de "site perigoso"* (or tray icon → *Tirar aviso…*, which shows a QR code). On iPhone, open the
 page in **Safari** to install the profile.
+
+**It is optional:** everything works without it, you just see the browser warning. How it works:
+- The authority is created **on your PC** and can only sign local network addresses (`192.168.x.x`,
+  `10.x.x.x`, etc.) and `localhost`. It is not valid for any internet site (bank, Google...), even if copied.
+- Its key lives in `%LOCALAPPDATA%\Phone Mouse` (or the project folder in manual mode). Anyone with that file
+  could impersonate devices on your local network (router, NAS) to phones that trust it. That's why it is
+  **valid for 2 years** and replaced automatically near expiry (just trust it again).
+- **Uninstalling** Phone Mouse deletes the key: the authority left on the phone can't sign anything anymore.
+- **To remove it from the phone:** iPhone → *Settings → General → VPN & Device Management* → *Phone Mouse*
+  profile → **Remove**. Android → *Settings → Security → Encryption & credentials → User credentials* →
+  *Phone Mouse CA* → **Remove**.
 
 <p align="center">
   <img src="docs/tela-ajustes-seguranca.png" width="230" alt="Settings: remove the unsafe site warning">
@@ -136,10 +153,12 @@ It checks the server, network and firewall, offers to fix the firewall and shows
 - **Windows limits:** the **sign-in screen**, **Ctrl+Alt+Del** and **UAC prompts** do not accept virtual
   mouse/keyboard input (Windows' own protection). Use the physical keyboard or Windows Hello there.
 - **Admin mode:** needed for windows running as administrator and many games. Games with kernel-level
-  anti-cheat deliberately block virtual mice.
+  anti-cheat deliberately block virtual mice, and some may **penalize or ban the account** for virtual
+  input: use it at your own risk in online games. Admin mode is **off** by default; only enable it if needed.
 - **iPhone:** the browser can't lock orientation or go truly fullscreen; the page rotates itself (⟳).
   To open without browser bars: Safari → Share → Add to Home Screen. USB cable doesn't work on iPhone.
-- **Network:** use it on trusted networks. Traffic is encrypted (HTTPS) and protected by the PIN.
+- **Network:** use it on trusted networks. Traffic is encrypted (HTTPS), PIN-protected, and the PC only
+  serves the local network. On public Wi-Fi (school, café), avoid admin mode.
 - Notifications go through the public ntfy.sh server (only the PC name and local address, never the PIN).
 
 ## License

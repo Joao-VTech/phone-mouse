@@ -421,9 +421,16 @@ let ws;
 // ---- PIN de acesso
 const getPin = () => { try { return JSON.parse(localStorage.getItem("pm-pin")) || ""; } catch { return ""; } };
 const setPin = p => { try { localStorage.setItem("pm-pin", JSON.stringify(p)); } catch {} };
-const infoUrl = () => `/info?pin=${encodeURIComponent(getPin())}`;
+// o PIN só vai no corpo do /pair (nunca na URL); o PC responde com um cookie de sessão
+const infoUrl = () => "/info";
 async function pinStatus(pin) {
-  try { return (await fetch(`/info?pin=${encodeURIComponent(pin)}`)).status; } catch { return 0; }
+  try {
+    return (await fetch("/pair", { method: "POST", headers: { "Content-Type": "application/json" },
+                                   body: JSON.stringify({ pin }) })).status;
+  } catch { return 0; }
+}
+async function paired() {
+  try { return (await fetch("/info")).status === 200; } catch { return false; }
 }
 function askPin(msg) {
   return new Promise(resolve => {
@@ -436,7 +443,7 @@ function askPin(msg) {
       if (pin.length !== 6) { $("pinErr").textContent = "O PIN tem 6 dígitos."; return; }
       const st = await pinStatus(pin);
       if (st === 200) { setPin(pin); box.hidden = true; inp.blur(); resolve(); }
-      else if (st === 429) $("pinErr").textContent = "Muitas tentativas erradas. Aguarde 1 minuto.";
+      else if (st === 429) $("pinErr").textContent = "Muitas tentativas erradas. Aguarde alguns minutos.";
       else if (st === 401) { $("pinErr").textContent = "PIN incorreto."; inp.value = ""; }
       else $("pinErr").textContent = "Sem conexão com o PC.";
     };
@@ -446,13 +453,14 @@ function askPin(msg) {
   });
 }
 async function ensurePin() {
-  const pin = getPin();
+  if (await paired()) return;
+  const pin = getPin();   // PIN salvo (QR code ou troca Wi-Fi ⇄ cabo): pareia sem digitar
   if (pin && await pinStatus(pin) === 200) return;
   await askPin(pin ? "O PIN salvo não vale mais. Digite o PIN atual do PC." : null);
 }
 
 function connect() {
-  ws = new WebSocket(`wss://${location.host}/ws?pin=${encodeURIComponent(getPin())}`);
+  ws = new WebSocket(`wss://${location.host}/ws`);
   ws.onopen  = () => {
     $("conn").textContent = "● conectado"; $("conn").className = "ok";
     fetch(infoUrl()).then(r => r.json()).then(i => { $("conn").textContent = "● " + i.name; document.title = "Phone Mouse · " + i.name; }).catch(() => {});
@@ -463,8 +471,8 @@ function connect() {
   };
   ws.onclose = e => {
     $("conn").textContent = "● desconectado"; $("conn").className = "bad";
-    if (e.code === 4001) { setPin(""); askPin("O PIN do PC mudou. Digite o novo PIN.").then(connect); }
-    else if (e.code === 4029) { $("conn").textContent = "● aguarde (muitas tentativas)"; setTimeout(connect, 60000); }
+    if (e.code === 4001) ensurePin().then(connect);   // PIN novo no PC: pareia de novo
+    else if (e.code === 4003) $("conn").textContent = "● bloqueado (página de outro site)";
     else setTimeout(connect, 1000);
   };
 }
@@ -655,12 +663,12 @@ $("kbBtn").onclick = () => openKeyboard();
 
 // ---- arquivos
 const fmtSize = b => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB";
-const fileUrl = id => `/files/${encodeURIComponent(id)}?pin=${encodeURIComponent(getPin())}`;
+const fileUrl = id => `/files/${encodeURIComponent(id)}`;
 function escapeHtml(t) { return String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]); }
 async function refreshFiles() {
   const box = $("fileList");
   try {
-    const list = await (await fetch(`/files?pin=${encodeURIComponent(getPin())}`)).json();
+    const list = await (await fetch("/files")).json();
     box.innerHTML = list.length ? list.map(f =>
       `<a href="${fileUrl(f.id)}" download="${escapeHtml(f.name)}"><span>⬇ ${escapeHtml(f.name)}</span><span>${fmtSize(f.size)}</span></a>`).join("")
       : '<div class="fsub">Nenhum arquivo enviado pelo PC ainda.</div>';
@@ -681,7 +689,7 @@ function fileArrived(f) {
 function uploadOne(file, i, total) {
   return new Promise(resolve => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/upload?pin=${encodeURIComponent(getPin())}&name=${encodeURIComponent(file.name)}`);
+    xhr.open("POST", `/upload?name=${encodeURIComponent(file.name)}`);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) $("upBar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%";
     };

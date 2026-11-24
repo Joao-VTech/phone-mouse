@@ -86,14 +86,30 @@ teclado próprio que gira junto.
 Cada PC tem um **PIN de 6 dígitos**. Sem ele ninguém controla o PC, mesmo estando na mesma rede.
 - **Escanear o QR code da tela do PC já pareia** (o PIN vai dentro do QR); o celular memoriza.
 - Ou digite o PIN: ele aparece no **ícone da bandeja**, na página do QR code e em `py server.py --pin`.
+- O PIN é usado só para **parear**: vai uma vez, por dentro da conexão criptografada (nunca na URL), e o
+  celular recebe uma sessão própria. Por isso ele não fica no histórico do navegador nem em logs.
 - **Gerar novo PIN** (menu da bandeja) desconecta todos os celulares, que pedem o PIN de novo.
-- Após 5 PINs errados, o aparelho fica bloqueado por 1 minuto.
+- **Proteção contra adivinhar o PIN:** após 5 PINs errados o aparelho fica bloqueado (1 min, depois 2, 4,
+  8... até 1 h); no total, a rede inteira só pode errar 10 vezes por minuto; e depois de 30 erros o PC
+  **troca o PIN sozinho** e avisa na tela (celulares já pareados continuam funcionando).
+- O PC só aceita conexões da **rede local** (e do cabo USB): pedidos vindos da internet são recusados.
 
 ### Tirar o aviso de "site perigoso"
 O PC tem uma **autoridade de certificados própria**, que vale **só para endereços de rede local**. Confie nela
 **uma vez** em cada celular e o aviso some para sempre, mesmo quando o IP do PC mudar: nos **Ajustes** do app →
 *Tirar o aviso de "site perigoso"* (ou ícone da bandeja → *Tirar aviso…*, que mostra um QR code). No iPhone,
 abra a página no **Safari** para instalar o perfil.
+
+**É opcional:** sem isso tudo funciona, só aparece o aviso do navegador. Como funciona e o que ela permite:
+- A autoridade é criada **no seu PC** e só consegue assinar endereços de rede local (`192.168.x.x`, `10.x.x.x`
+  etc.) e `localhost`. Ela não vale para nenhum site da internet (banco, Google...), nem que alguém a copie.
+- A chave fica em `%LOCALAPPDATA%\Phone Mouse` (ou na pasta do projeto, no modo manual). Quem tiver acesso
+  a esse arquivo poderia se passar por aparelhos da sua rede local (roteador, NAS) para os celulares que
+  confiam nela. Por isso ela **vale 2 anos** e é trocada sozinha perto de vencer (aí é só confiar de novo).
+- **Desinstalar** o Phone Mouse apaga a chave: a autoridade que ficou no celular não assina mais nada.
+- **Para remover do celular:** iPhone → *Ajustes → Geral → VPN e Gerenciamento de Dispositivos* → perfil
+  *Phone Mouse* → **Remover**. Android → *Configurações → Segurança → Criptografia e credenciais →
+  Credenciais do usuário* → *Phone Mouse CA* → **Remover**.
 
 <p align="center">
   <img src="docs/tela-ajustes-seguranca.png" width="230" alt="Ajustes: tirar o aviso de site perigoso">
@@ -138,11 +154,14 @@ Ele verifica servidor, rede e firewall, oferece corrigir o firewall e mostra o e
 - **Limites do Windows:** a **tela de login**, o **Ctrl+Alt+Del** e os **avisos do UAC** não aceitam
   mouse/teclado virtuais (proteção do próprio Windows). Neles use o teclado físico ou Windows Hello.
 - **Modo administrador:** necessário para janelas abertas como administrador e muitos jogos.
-  Jogos com anti-cheat em nível de kernel bloqueiam mouses virtuais de propósito.
+  Jogos com anti-cheat em nível de kernel bloqueiam mouses virtuais de propósito, e alguns podem
+  **punir ou banir a conta** por usar entrada virtual: use por sua conta e risco em jogos online.
+  O modo administrador vem **desligado**; só ative se precisar.
 - **iPhone:** o navegador não permite travar a orientação nem tela cheia real; a página gira a si
   mesma (⟳). Para abrir sem barras: Safari → Compartilhar → Adicionar à Tela de Início. Cabo USB não
   funciona no iPhone.
-- **Rede:** use em redes de confiança. O tráfego é criptografado (HTTPS) e protegido por PIN.
+- **Rede:** use em redes de confiança. O tráfego é criptografado (HTTPS), protegido por PIN e o PC só
+  atende a rede local. Em Wi-Fi público (escola, café), evite o modo administrador.
 - A notificação passa pelo servidor público ntfy.sh (envia só o nome do PC e o endereço local, nunca o PIN).
 
 ## Licença
