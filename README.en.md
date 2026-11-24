@@ -9,6 +9,10 @@ install on the phone**. Touchpad with gestures, gyroscope pointer, full keyboard
 **file transfer both ways**, fullscreen, game-friendly admin mode and PIN-protected access.
 
 <p align="center">
+  <img src="docs/demo.gif" width="300" alt="Demo: a finger on the phone's touchpad scrolls the page open on the PC monitor">
+</p>
+
+<p align="center">
   <img src="docs/tela-touchpad.png" width="230" alt="Touchpad with buttons and scroll wheel">
   <img src="docs/tela-apontador.png" width="230" alt="Pointer mode">
   <img src="docs/tela-ajustes.png" width="230" alt="Settings panel">
