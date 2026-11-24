@@ -7,85 +7,124 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.png">
 <link rel="apple-touch-icon" href="/icon.png">
-<meta name="theme-color" content="#111111">
+<meta name="theme-color" content="#0e1014">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
-  :root { --bg:#111; --fg:#eee; --btn:#2a2a2a; --act:#3b82f6; --mut:#888; }
+  :root { --bg:#0e1014; --surface:#171a20; --surface2:#20242c; --line:#2a2f38; --fg:#e8eaef; --mut:#8b93a1;
+          --act:#3b82f6; --btn:#20242c; --ok:#4ade80; --bad:#f87171; }
   * { box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:16px system-ui,sans-serif; overscroll-behavior:none; touch-action:none; }
-  #app { display:grid; grid-template-rows:auto auto 1fr 2fr auto; height:100dvh; gap:8px; padding:8px; }
-  #status { font-size:13px; color:var(--mut); display:flex; justify-content:space-between; gap:8px; }
-  #status .ok { color:#4ade80; } #status .bad { color:#f87171; }
-  .top { display:grid; grid-template-columns:3fr 2fr; gap:8px; }
-  .top button { font-size:16px; font-weight:600; padding:12px 6px; border:0; border-radius:14px; background:#1e3a5f; color:#fff; }
-  .top #link { background:#3f2e5f; }
-  .row { display:grid; grid-template-columns:1fr 56px 1fr; gap:8px; }
-  .btn { background:var(--btn); border-radius:14px; display:flex; align-items:center; justify-content:center; font-weight:600; text-align:center; }
-  .btn.on { background:var(--act); }
-  #main { display:grid; grid-template-columns:1fr 56px; gap:8px; }
-  #clutch { flex-direction:column; gap:6px; font-size:20px; padding:12px; }
-  #clutch small { font-weight:400; font-size:13px; color:#bbb; }
-  #scroll { background:repeating-linear-gradient(0deg,#222 0 10px,#2a2a2a 10px 20px); border-radius:14px; display:flex; align-items:center; justify-content:center; writing-mode:vertical-rl; font-size:12px; color:var(--mut); }
-  #cfg { display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; font-size:14px; }
-  #cfg input[type=range] { width:100%; }
-  #cfg .line { grid-column:1/-1; display:flex; gap:12px; align-items:center; justify-content:space-between; }
-  button.small { font-size:14px; padding:8px 14px; border:0; border-radius:10px; background:var(--btn); color:var(--fg); }
-  .overlay { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; text-align:center; }
-  .overlay button { font-size:22px; padding:18px 36px; border:0; border-radius:14px; background:var(--act); color:#fff; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:16px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
+              overscroll-behavior:none; touch-action:none; }
+  button { font:inherit; color:inherit; }
+  [hidden] { display:none !important; }
+
+  /* ---- tela principal ---- */
+  #app { display:grid; grid-template-rows:auto auto minmax(130px,22dvh) 1fr; height:100dvh; gap:10px;
+         padding:max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  #topbar { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; }
+  #conn { font-size:14px; font-weight:600; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #conn.ok { color:var(--fg); } #conn.ok::first-letter { color:var(--ok); } #conn.bad::first-letter { color:var(--bad); }
+  .icons { display:flex; gap:4px; }
+  .ib { width:42px; height:42px; border:0; border-radius:12px; background:transparent; color:var(--mut);
+        display:grid; place-items:center; padding:0; }
+  .ib:active { background:var(--surface2); color:var(--fg); }
+  .ib svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  #modeSeg { display:grid; grid-template-columns:1fr 1fr; padding:4px; gap:4px; background:var(--surface); border-radius:14px; }
+  #modeSeg button { border:0; border-radius:10px; padding:9px 6px; background:transparent; color:var(--mut); font-size:15px; font-weight:600; }
+  #modeSeg button.on { background:var(--surface2); color:var(--fg); box-shadow:0 1px 0 rgba(255,255,255,.04) inset; }
+
+  /* botões como um mouse: esquerdo | (meio + roda) | direito */
+  .row { display:grid; grid-template-columns:1fr 54px 1fr; gap:6px; }
+  .btn { background:var(--surface); border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+         color:var(--mut); font-size:13px; font-weight:600; letter-spacing:.3px; text-align:center; }
+  .btn.on { background:var(--act); border-color:var(--act); color:#fff; }
+  .row > [data-b="left"]  { border-radius:22px 8px 8px 14px; }
+  .row > [data-b="right"] { border-radius:8px 22px 14px 8px; }
+  .mid { display:grid; grid-template-rows:44px 1fr; gap:6px; }
+  .mid [data-b="middle"] { border-radius:10px; font-size:10px; }
+  #scroll { border-radius:10px; border:1px solid var(--line);
+            background:repeating-linear-gradient(180deg, var(--surface) 0 7px, var(--surface2) 7px 9px); }
+  #scroll.on { border-color:var(--act); }
+
+  #main { display:grid; min-height:0; }
+  #clutch { position:relative; border-radius:20px; flex-direction:column; gap:4px; color:var(--mut);
+            background:var(--surface) radial-gradient(circle, rgba(255,255,255,.045) 1px, transparent 1.5px) 0 0/22px 22px; }
+  #clutch.on { background-color:#1b1f26; border-color:#3a4150; }
+  #clutch .hint { font-size:15px; font-weight:600; opacity:.55; }
+  #clutch small { font-size:12px; font-weight:400; opacity:.45; max-width:80%; }
+
+  /* ---- ajustes (painel que sobe de baixo) ---- */
+  #settings { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; justify-content:center; }
+  .sheet { width:100%; max-width:520px; max-height:88dvh; overflow-y:auto; touch-action:pan-y; background:var(--surface);
+           border-radius:22px 22px 0 0; padding:10px 18px max(18px, env(safe-area-inset-bottom)); }
+  .grab { width:40px; height:5px; border-radius:3px; background:var(--line); margin:0 auto 10px; }
+  .sheet h2 { font-size:18px; margin:0 0 6px; display:flex; justify-content:space-between; align-items:center; }
+  .sheet h3 { font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--mut); margin:18px 0 8px; }
+  .set { display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 12px; padding:10px 0; border-top:1px solid var(--line); }
+  .set:first-of-type { border-top:0; }
+  .set input[type=range] { grid-column:1/-1; width:100%; accent-color:var(--act); }
+  .set .v { color:var(--mut); font-variant-numeric:tabular-nums; }
+  .set input[type=checkbox] { width:22px; height:22px; accent-color:var(--act); }
+  .pill { border:0; border-radius:10px; padding:9px 14px; background:var(--surface2); color:var(--fg); font-size:14px; font-weight:600; }
+  .gest { margin:0; padding-left:18px; color:var(--mut); font-size:14px; line-height:1.6; }
+  .gest b { color:var(--fg); font-weight:600; }
+  .foot { color:var(--mut); font-size:12px; margin-top:14px; text-align:center; }
+
+  /* ---- telas cheias (início, PIN, calibração, arquivos) ---- */
+  .overlay { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center;
+             gap:18px; padding:24px; text-align:center; z-index:25; }
+  .overlay button { font-size:18px; font-weight:600; padding:15px 34px; border:0; border-radius:14px; background:var(--act); color:#fff; }
   .overlay .big { font-size:26px; font-weight:700; }
   .overlay .arrow { font-size:72px; line-height:1; }
-  #bar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
+  .lead { color:var(--mut); max-width:360px; line-height:1.5; }
+  .modes { display:grid; gap:10px; width:100%; max-width:360px; text-align:left; }
+  .modes div { background:var(--surface); border-radius:14px; padding:12px 14px; color:var(--mut); font-size:14px; }
+  .modes b { color:var(--fg); display:block; font-size:15px; }
+  #bar, #upBar { width:80%; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; }
   #bar div { height:100%; width:0; background:var(--act); }
-  [hidden] { display:none !important; }
-  #files { justify-content:flex-start; overflow-y:auto; gap:12px; padding-top:32px; touch-action:pan-y; }
-  #files .fbtn { font-size:20px; padding:16px 28px; border-radius:14px; background:var(--act); color:#fff; }
+  #upBar div { height:100%; width:0; background:var(--ok); }
+
+  #files { justify-content:flex-start; overflow-y:auto; gap:12px; padding-top:40px; touch-action:pan-y; }
+  #files .fbtn { font-size:17px; font-weight:600; padding:15px 28px; border-radius:14px; background:var(--act); color:#fff; }
   #files .fsub { color:var(--mut); font-size:13px; }
   #files .fhead { font-weight:700; margin-top:10px; }
-  #files #filesClose { font-size:16px; padding:10px 24px; background:var(--btn); }
-  #upBar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
-  #upBar div { height:100%; width:0; background:#4ade80; }
+  #files #filesClose { font-size:15px; padding:10px 24px; background:var(--surface2); }
   #fileList { width:100%; max-width:420px; display:flex; flex-direction:column; gap:6px; }
-  #fileList a { display:flex; justify-content:space-between; gap:10px; padding:12px 14px; border-radius:10px; background:#222; color:#eee; text-decoration:none; text-align:left; }
+  #fileList a { display:flex; justify-content:space-between; gap:10px; padding:12px 14px; border-radius:12px; background:var(--surface); color:var(--fg); text-decoration:none; text-align:left; }
   #fileList a span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #fileList a span:last-child { color:var(--mut); flex:none; }
-  #filesFs { position:fixed; top:10px; right:114px; width:44px; height:44px; border:0; border-radius:22px;
-             background:rgba(255,255,255,.08); color:#aaa; font-size:20px; display:none; z-index:5; }
-  body.full #filesFs { display:block; }
+  #pinIn { font-size:32px; letter-spacing:10px; text-align:center; width:220px; padding:10px; border-radius:14px;
+           border:1px solid var(--line); background:var(--surface); color:var(--fg); -webkit-user-select:text; user-select:text; touch-action:auto; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); max-width:90vw; z-index:40; background:var(--surface2);
+           border:1px solid var(--line); color:var(--fg); padding:10px 14px; border-radius:12px; font-size:14px; text-align:center; }
   #toast a { color:#93c5fd; font-weight:700; margin-left:8px; }
-  #pinIn { font-size:32px; letter-spacing:10px; text-align:center; width:220px; padding:10px; border-radius:12px;
-           border:1px solid #444; background:#1b1b1b; color:#fff; -webkit-user-select:text; user-select:text; touch-action:auto; }
-  #cfg .line { flex-wrap:wrap; }
-  /* painel do teclado (fica no topo, acima do teclado do celular) */
-  #kb { position:fixed; top:0; left:0; right:0; z-index:10; background:#1b1b1b; padding:6px; border-bottom:1px solid #333; }
+
+  /* ---- teclado ---- */
+  #kb { position:fixed; top:0; left:0; right:0; z-index:10; background:var(--surface); padding:6px; border-bottom:1px solid var(--line); }
   #kb .keys { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; }
-  #kb .keys button { padding:10px 0; font-size:15px; border:0; border-radius:8px; background:#2f2f2f; color:#eee; }
+  #kb .keys button { padding:10px 0; font-size:15px; border:0; border-radius:9px; background:var(--surface2); color:var(--fg); }
   #kb .keys button.on { background:var(--act); }
-  /* teclado próprio (usado quando a página está girada via CSS) */
-  #kb.custom { top:auto; bottom:0; }
+  #kb.custom { top:auto; bottom:0; border-bottom:0; border-top:1px solid var(--line); }
   #kb.custom #kbIn, #kb:not(.custom) #kbKeys { display:none; }
   #kbKeys { margin-top:5px; display:flex; flex-direction:column; gap:5px; }
   #kbKeys .r { display:flex; gap:4px; }
-  #kbKeys button { flex:1; min-width:0; padding:11px 0; font-size:18px; border:0; border-radius:7px; background:#333; color:#eee; }
+  #kbKeys button { flex:1; min-width:0; padding:11px 0; font-size:18px; border:0; border-radius:8px; background:var(--surface2); color:var(--fg); }
   #kbKeys button.wide { flex:1.6; font-size:15px; } #kbKeys button.space { flex:5; }
   #kbKeys button.on { background:var(--act); }
-  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); max-width:90vw; z-index:20; background:#333; color:#fff;
-           padding:10px 14px; border-radius:10px; font-size:14px; text-align:center; }
-  #kbIn { display:block; width:100%; margin-top:6px; height:38px; resize:none; font-size:16px; border:0; border-radius:8px;
-          padding:8px; background:#111; color:#eee; -webkit-user-select:text; user-select:text; touch-action:auto; }
-  /* touchpad em tela cheia: só a área de toque */
+  #kbIn { display:block; width:100%; margin-top:6px; height:38px; resize:none; font-size:16px; border:0; border-radius:9px;
+          padding:8px; background:var(--bg); color:var(--fg); -webkit-user-select:text; user-select:text; touch-action:auto; }
+
+  /* ---- touchpad em tela cheia: só a área de toque ---- */
   body.full #app { grid-template-rows:1fr; padding:0; }
-  body.full #app > :not(#main):not(#kb), body.full #scroll { display:none; }
-  body.full #main { grid-template-columns:1fr; }
-  body.full #clutch { border-radius:0; background:#181818; }
-  body.full #clutch.on { background:#1d1d1d; }
-  body.full #clutch small { opacity:.5; }
-  #exitFull { position:fixed; top:10px; right:10px; width:44px; height:44px; border:0; border-radius:22px;
-              background:rgba(255,255,255,.08); color:#aaa; font-size:20px; display:none; z-index:5; }
-  body.full #exitFull { display:block; }
-  #rotate { position:fixed; top:10px; right:62px; width:44px; height:44px; border:0; border-radius:22px;
-            background:rgba(255,255,255,.08); color:#aaa; font-size:22px; display:none; z-index:5; }
-  body.full #rotate { display:block; }
+  body.full #app > :not(#main):not(#kb) { display:none; }
+  body.full #clutch { border-radius:0; border:0; }
+  .fsb { position:fixed; top:10px; width:44px; height:44px; border:0; border-radius:22px; background:rgba(255,255,255,.07);
+         color:var(--mut); display:none; place-items:center; z-index:5; padding:0; }
+  .fsb svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  body.full .fsb { display:grid; }
+  #exitFull { right:10px; } #rotate { right:62px; } #filesFs { right:114px; }
   /* plano B quando o navegador não deixa travar a orientação: gira a página via CSS */
   body.rot #app  { position:fixed; top:0; left:100vw; width:100dvh; height:100vw; transform-origin:top left; transform:rotate(90deg); }
   body.rot2 #app { position:fixed; top:100dvh; left:0; width:100dvh; height:100vw; transform-origin:top left; transform:rotate(-90deg); }
@@ -93,29 +132,22 @@
 </head>
 <body>
 <div id="app">
-  <div id="status"><span id="conn" class="bad">● desconectado</span><span id="rate"></span></div>
-  <div class="top"><button id="mode"></button><button id="link"></button></div>
-  <div class="row">
-    <div class="btn" data-b="left">Clique<br>esquerdo</div>
-    <div class="btn" data-b="middle">●</div>
-    <div class="btn" data-b="right">Clique<br>direito</div>
-  </div>
-  <div id="main">
-    <div class="btn" id="clutch"></div>
-    <div id="scroll">arraste p/ rolar</div>
-  </div>
-  <div id="cfg">
-    <span>Velocidade</span><input id="sens" type="range" min="2" max="60" value="18"><span id="sensv"></span>
-    <span>Aceleração</span><input id="acc" type="range" min="0" max="100" value="30"><span id="accv"></span>
-    <span>Anti-tremor</span><input id="dead" type="range" min="0" max="20" value="3"><span id="deadv"></span>
-    <div class="line">
-      <label><input id="always" type="checkbox"> Mover sem segurar</label>
-      <button class="small" id="recal">Recalibrar</button>
-      <button class="small" id="full">⛶ Tela cheia</button>
-      <button class="small" id="kbBtn">⌨ Teclado</button>
-      <button class="small" id="filesBtn">📎 Arquivos</button>
+  <div id="topbar">
+    <span id="conn" class="bad">● desconectado</span>
+    <div class="icons">
+      <button class="ib" id="kbBtn" title="Teclado"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7.5 14h9"/></svg></button>
+      <button class="ib" id="filesBtn" title="Arquivos"><svg viewBox="0 0 24 24"><path d="M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"/></svg></button>
+      <button class="ib" id="full" title="Tela cheia"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button class="ib" id="setBtn" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg></button>
     </div>
   </div>
+  <div id="modeSeg"><button data-mode="pad">Touchpad</button><button data-mode="air">Apontador</button></div>
+  <div class="row">
+    <div class="btn" data-b="left">ESQUERDO</div>
+    <div class="mid"><div class="btn" data-b="middle">MEIO</div><div id="scroll" title="Arraste para rolar"></div></div>
+    <div class="btn" data-b="right">DIREITO</div>
+  </div>
+  <div id="main"><div class="btn" id="clutch"></div></div>
   <div id="kb" hidden>
     <div class="keys">
       <button data-k="esc">Esc</button><button data-k="tab">Tab</button><button data-m="ctrl">Ctrl</button>
@@ -128,18 +160,44 @@
   </div>
 </div>
 <div id="toast" hidden></div>
-<button id="exitFull" title="Sair da tela cheia">✕</button>
-<button id="rotate" title="Virar a tela">⟳</button>
-<button id="filesFs" title="Arquivos">📎</button>
+<button class="fsb" id="exitFull" title="Sair da tela cheia"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+<button class="fsb" id="rotate" title="Virar a tela"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
+<button class="fsb" id="filesFs" title="Arquivos"><svg viewBox="0 0 24 24"><path d="M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"/></svg></button>
+
+<!-- ajustes -->
+<div id="settings" hidden>
+  <div class="sheet">
+    <div class="grab"></div>
+    <h2>Ajustes <button class="pill" id="setClose">Fechar</button></h2>
+    <h3>Movimento</h3>
+    <div class="set"><span>Velocidade</span><span class="v" id="sensv"></span><input id="sens" type="range" min="2" max="60" value="18"></div>
+    <div class="set"><span>Aceleração</span><span class="v" id="accv"></span><input id="acc" type="range" min="0" max="100" value="30"></div>
+    <div class="set air-only"><span>Anti-tremor</span><span class="v" id="deadv"></span><input id="dead" type="range" min="0" max="20" value="3"></div>
+    <label class="set air-only"><span>Mover sem segurar</span><input id="always" type="checkbox"></label>
+    <div class="set air-only"><span>Calibração do apontador</span><button class="pill" id="recal">Recalibrar</button></div>
+    <h3>Conexão</h3>
+    <div class="set"><span>Wi-Fi ou cabo USB (Android)</span><button class="pill" id="link"></button></div>
+    <h3>Gestos do touchpad</h3>
+    <ul class="gest">
+      <li><b>1 dedo</b> move · <b>toque</b> clica · <b>toque + toque e arrasta</b> seleciona</li>
+      <li><b>2 dedos:</b> toque = botão direito · arrastar = rolar</li>
+      <li><b>3 dedos:</b> botão do meio</li>
+      <li><b>Borda até o meio:</b> abre/guarda o teclado</li>
+    </ul>
+    <div class="foot"><span id="rate"></span></div>
+  </div>
+</div>
 
 <!-- tela inicial -->
 <div class="overlay" id="start">
   <div class="big">Phone Mouse</div>
-  <div>Dois modos, alterne pelo botão azul no topo:<br><br>
-    👆 <b>Touchpad</b>: passe o dedo na tela, como no notebook.<br>
-    🔦 <b>Apontador</b>: gire o pulso para apontar, como um laser.</div>
+  <div class="modes">
+    <div><b>Touchpad</b>passe o dedo na tela, como no notebook</div>
+    <div><b>Apontador</b>gire o pulso para apontar, como um laser</div>
+  </div>
+  <div class="lead">Troque de modo no seletor do topo. Ajustes ficam no ícone do canto.</div>
   <button id="go">Iniciar</button>
-  <div id="err" style="color:#f87171"></div>
+  <div id="err" style="color:var(--bad)"></div>
 </div>
 
 <!-- arquivos -->
@@ -212,9 +270,8 @@ cfgIds.forEach(k => $(k).addEventListener("input", saveCfg)); saveCfg();
 // ---- modos
 const MODES = {
   air: {
-    label: "🔦 Modo: Apontador  ⇄",
     storeKey: "pm-map",
-    clutch: 'SEGURE AQUI<small>e gire o pulso para apontar<br>1 toque = clique esquerdo · 2 toques = clique direito</small>',
+    clutch: '<span class="hint">Segure e aponte</span><small>toque = clique · 2 toques = botão direito</small>',
     steps: [
       { key:"x", arrow:"➡️", title:"Gire para a DIREITA",
         text:"Segure como controle remoto, tela para cima. Ao tocar em Pronto, aponte devagar o topo do celular da esquerda para a direita (girando o pulso, como uma lanterna) e pare." },
@@ -223,12 +280,10 @@ const MODES = {
     ],
   },
   pad: {
-    label: "👆 Modo: Touchpad  ⇄",
-    clutch: 'TOUCHPAD<small>1 dedo = mover · toque = clique · toque + toque e arrasta = selecionar<br>2 dedos: toque = direito, arrastar = rolar · 3 dedos = botão do meio<br>deslize da borda até o meio = abre/guarda o teclado</small>',
+    clutch: '<span class="hint">Touchpad</span><small>deslize da borda até o meio para o teclado</small>',
     steps: null,   // não precisa de calibração
   },
 };
-const ORDER = ["pad", "air"];   // Touchpad primeiro, depois Apontador
 const needsCal = () => MODES[mode].steps && !maps[mode];
 let mode = store.get("pm-mode", "pad");
 if (!MODES[mode]) mode = "pad";   // ex.: "desk" (Mouse de mesa, descontinuado)
@@ -236,9 +291,9 @@ if (!MODES[mode]) mode = "pad";   // ex.: "desk" (Mouse de mesa, descontinuado)
 const maps = { air: store.get(MODES.air.storeKey, null) };
 
 function applyMode() {
-  $("mode").textContent = MODES[mode].label;
+  document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+  document.querySelectorAll(".air-only").forEach(el => el.hidden = mode !== "air");   // ajustes só do apontador
   $("clutch").innerHTML = MODES[mode].clutch;
-  $("recal").hidden = !MODES[mode].steps;
   $("full").hidden = mode !== "pad";
 }
 
@@ -284,18 +339,25 @@ $("full").onclick = () => setFull(true);
 $("exitFull").onclick = () => setFull(false);
 // botão "voltar" do Android sai da tela cheia do navegador -> sai do modo também
 document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) setFull(false); });
-$("mode").onclick = () => {
-  mode = ORDER[(ORDER.indexOf(mode) + 1) % ORDER.length];
+function setMode(m) {
+  if (!MODES[m] || m === mode) return;
+  mode = m;
   store.set("pm-mode", mode);
   applyMode();
   navigator.vibrate?.(20);
   if (needsCal()) calibrate();
-};
+}
+document.querySelectorAll("#modeSeg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
 applyMode();
+
+// ---- ajustes (painel)
+$("setBtn").onclick = () => $("settings").hidden = false;
+$("setClose").onclick = () => $("settings").hidden = true;
+$("settings").onclick = e => { if (e.target === $("settings")) $("settings").hidden = true; };   // toque fora fecha
 
 // ---- conexão: Wi-Fi <-> cabo USB
 const onCable = ["localhost", "127.0.0.1"].includes(location.hostname);
-$("link").textContent = onCable ? "🔌 Cabo  ⇄" : "📶 Wi-Fi  ⇄";
+$("link").textContent = onCable ? "Cabo · trocar" : "Wi-Fi · trocar";
 $("link").onclick = async () => {
   let info;
   try { info = await (await fetch(infoUrl())).json(); }
@@ -639,13 +701,14 @@ kbKeys.addEventListener("pointercancel", () => { keyStart?.b?.classList.remove("
 // ---- rolagem por arraste
 let lastY = null, scrollAcc = 0;
 const sc = $("scroll");
-sc.addEventListener("pointerdown", e => { lastY = e.clientY; sc.setPointerCapture(e.pointerId); });
+sc.addEventListener("pointerdown", e => { lastY = e.clientY; sc.setPointerCapture(e.pointerId); sc.classList.add("on"); });
 sc.addEventListener("pointermove", e => {
   if (lastY === null) return;
   scrollAcc += (lastY - e.clientY) * 4; lastY = e.clientY;
   if (Math.abs(scrollAcc) >= 1) { send({t:"s", y: Math.trunc(scrollAcc)}); scrollAcc -= Math.trunc(scrollAcc); }
 });
-sc.addEventListener("pointerup", () => lastY = null);
+sc.addEventListener("pointerup", () => { lastY = null; sc.classList.remove("on"); });
+sc.addEventListener("pointercancel", () => { lastY = null; sc.classList.remove("on"); });
 
 // ---- sensores
 let lastT = null, n = 0, tick = performance.now();

@@ -8,6 +8,11 @@ Use o celular como **mouse e teclado do PC** (Windows) pelo navegador — **sem 
 Touchpad com gestos, apontador por giroscópio, teclado com acentos, **envio de arquivos** nos dois
 sentidos, tela cheia, modo para jogos e acesso protegido por PIN.
 
+<p align="center">
+  <img src="docs/tela-touchpad.png" width="260" alt="Tela principal: touchpad, botões e roda de rolagem">
+  <img src="docs/tela-ajustes.png" width="260" alt="Painel de ajustes">
+</p>
+
 ## Instalação rápida (Windows)
 
 **Win + R** → digite `powershell` → **Enter**, e cole/digite:

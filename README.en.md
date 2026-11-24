@@ -8,6 +8,11 @@ Turn your phone into a **mouse and keyboard for your Windows PC** using just the
 install on the phone**. Touchpad with gestures, gyroscope pointer, full keyboard (accents, emoji),
 **file transfer both ways**, fullscreen, game-friendly admin mode and PIN-protected access.
 
+<p align="center">
+  <img src="docs/tela-touchpad.png" width="260" alt="Main screen: touchpad, buttons and scroll wheel">
+  <img src="docs/tela-ajustes.png" width="260" alt="Settings panel">
+</p>
+
 > The interface is currently in **Brazilian Portuguese**. Contributions with translations are welcome!
 
 ## Quick install (Windows)
