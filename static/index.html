@@ -83,6 +83,7 @@
   .modes { display:grid; gap:10px; width:100%; max-width:360px; text-align:left; }
   .modes div { background:var(--surface); border-radius:14px; padding:12px 14px; color:var(--mut); font-size:14px; }
   .modes b { color:var(--fg); display:block; font-size:15px; }
+  #cal, #pinBox { z-index:35; }   /* calibração e PIN sempre por cima dos ajustes */
   #bar, #upBar { width:80%; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; }
   #bar div { height:100%; width:0; background:var(--act); }
   #upBar div { height:100%; width:0; background:var(--ok); }
@@ -820,7 +821,7 @@ async function calibrate() {
   ov.hidden = true;
   calRunning = false;
 }
-$("recal").onclick = calibrate;
+$("recal").onclick = () => { $("settings").hidden = true; calibrate(); };   // fecha os ajustes e calibra na hora
 
 $("go").onclick = async () => {
   try {
