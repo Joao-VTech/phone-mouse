@@ -4,6 +4,7 @@ key.pem
 icon.ico
 static/icon.png
 phone-mouse.log
+notificacao.html
 __pycache__/
 
 # pessoal: contém o tópico secreto de notificação

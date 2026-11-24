@@ -59,7 +59,8 @@ start "" pyw -3 server.py
 :done
 echo.
 echo  Pronto! O Phone Mouse esta rodando (icone perto do relogio).
-echo  No celular: instale o app "ntfy" e assine o topico que esta em config.json
-echo  para receber o link sempre que o PC ligar.
+echo  Uma pagina vai abrir mostrando como receber a notificacao no celular
+echo  (QR code no Android, topico para copiar no iPhone).
+echo  Para abrir de novo: icone perto do relogio - "Configurar notificacao no celular".
 echo.
 pause

@@ -42,13 +42,15 @@ Manual: `py -m pip install -r requirements.txt` e `py server.py` (ou `py server.
 3. Na primeira vez, aceite o aviso de certificado (é autoassinado) e toque em **Iniciar**.
 
 ### Notificação no celular
-Instale o app **[ntfy](https://ntfy.sh)** e assine o tópico que está em `config.json`
-(criado na primeira execução). Para usar o **mesmo tópico em vários PCs**, copie o `config.json`
+Na primeira execução abre uma página explicando como assinar a notificação no app
+**[ntfy](https://ntfy.sh)**: **QR code no Android** (assina com um toque) e o **tópico para copiar no iPhone**
+(no app: **+** → tópico → **Subscribe**). Para abrir de novo: ícone da bandeja →
+*Configurar notificação no celular* (ou `py server.py --setup-notification`). Para usar o **mesmo tópico em vários PCs**, copie o `config.json`
 entre eles. Para desligar, mude `"notify"` para `false`. Para trocar o nome mostrado, adicione
 `"pc_name": "Sala"`.
 
 ### Ícone da bandeja
-Enviar link para o celular · Iniciar com o Windows · Ativar modo administrador · Sair.
+Enviar link para o celular · Configurar notificação no celular · Iniciar com o Windows · Ativar modo administrador · Sair.
 
 ### Conexão
 - **Wi-Fi:** celular e PC na mesma rede.

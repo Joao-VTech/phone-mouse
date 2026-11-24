@@ -370,6 +370,71 @@ def send_notification(wait_network: bool = False) -> bool:
         return False
 
 
+# ---------------------------------------------------------------- página de configuração da notificação
+SETUP_HTML = BASE / "notificacao.html"
+
+
+def open_notification_setup() -> None:
+    """Gera uma página local com QR code (Android) e o tópico (iPhone) e abre no navegador do PC."""
+    import base64
+    import html
+    import io
+    import qrcode
+
+    cfg = load_config()
+    topic = cfg["ntfy_topic"]
+    deep = f"ntfy://ntfy.sh/{topic}?display=Phone%20Mouse"
+    buf = io.BytesIO()
+    qrcode.make(deep, box_size=8, border=2).save(buf, format="PNG")
+    qr = base64.b64encode(buf.getvalue()).decode()
+    t = html.escape(topic)
+    off = "" if cfg.get("notify") else (
+        '<p class="warn">⚠️ A notificação está <b>desligada</b> neste PC '
+        '(<code>"notify": false</code> no config.json).</p>')
+    page = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Phone Mouse - notificação</title>
+<style>
+ :root {{ --bg:#f6f7f9; --fg:#1b1d21; --card:#fff; --mut:#5b6270; --acc:#2563eb; --line:#e3e6ea; }}
+ @media (prefers-color-scheme: dark) {{ :root {{ --bg:#111317; --fg:#e8eaee; --card:#1a1d23; --mut:#9aa1ad; --acc:#60a5fa; --line:#2a2f37; }} }}
+ body {{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }}
+ main {{ max-width:860px; margin:0 auto; padding:32px 16px; }}
+ h1 {{ font-size:26px; margin:0 0 4px; }} .sub {{ color:var(--mut); margin:0 0 24px; }}
+ .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }}
+ .card {{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }}
+ h2 {{ font-size:18px; margin:0 0 12px; }} ol {{ padding-left:20px; margin:0; }} li {{ margin:6px 0; }}
+ .qr {{ display:block; width:220px; max-width:100%; margin:8px auto 12px; background:#fff; padding:8px; border-radius:10px; }}
+ .topic {{ display:flex; gap:8px; align-items:center; margin:12px 0; }}
+ .topic code {{ flex:1; font-size:18px; padding:10px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--line); word-break:break-all; }}
+ button {{ font:inherit; padding:10px 14px; border:0; border-radius:8px; background:var(--acc); color:#fff; cursor:pointer; }}
+ .warn {{ background:#fef3c7; color:#78350f; padding:10px 12px; border-radius:8px; }}
+ .foot {{ color:var(--mut); font-size:14px; margin-top:24px; }}
+</style></head><body><main>
+<h1>Notificação no celular</h1>
+<p class="sub">Assine o tópico deste PC no app <b>ntfy</b> para receber "Phone Mouse pronto - {html.escape(pc_name())}" com o link de acesso.</p>
+{off}
+<div class="grid">
+ <section class="card"><h2>🤖 Android</h2><ol>
+  <li>Instale o app <b>ntfy</b> pela Play Store.</li>
+  <li>Aponte a câmera do celular para o QR code e toque no link.</li>
+  <li>O app abre e assina o tópico sozinho.</li></ol>
+  <img class="qr" alt="QR code para assinar o tópico no app ntfy" src="data:image/png;base64,{qr}">
+ </section>
+ <section class="card"><h2>🍎 iPhone</h2><ol>
+  <li>Instale o app <b>ntfy</b> pela App Store e permita notificações.</li>
+  <li>No app, toque em <b>+</b>.</li>
+  <li>Digite o tópico abaixo e toque em <b>Subscribe</b>.</li></ol>
+  <div class="topic"><code id="t">{t}</code><button onclick="navigator.clipboard.writeText('{t}').then(()=>this.textContent='Copiado!')">Copiar</button></div>
+  <p class="sub">Dica: copie aqui e cole no celular (ex.: pela área de transferência compartilhada ou mandando para você mesmo).</p>
+ </section>
+</div>
+<p class="foot">Para testar: clique com o botão direito no ícone do Phone Mouse (perto do relógio) → <b>Enviar link para o celular</b>.<br>
+O tópico funciona como uma senha: não o publique. Para usar o mesmo tópico em outro PC, copie o <code>config.json</code>.</p>
+</main></body></html>"""
+    SETUP_HTML.write_text(page, encoding="utf-8")
+    # via explorer: abre o navegador sem privilégio de administrador mesmo se o servidor for admin
+    subprocess.Popen(["explorer.exe", str(SETUP_HTML)])
+
+
 # ---------------------------------------------------------------- handlers
 async def index(_req):
     return web.FileResponse(BASE / "static" / "index.html", headers={"Cache-Control": "no-cache"})
@@ -509,6 +574,7 @@ def run_tray():
                          "Modo administrador: desligado", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Enviar link para o celular", lambda: notify_bg(), default=True),
+        pystray.MenuItem("Configurar notificação no celular", lambda: open_notification_setup()),
         pystray.MenuItem("Ativar modo administrador (jogos e apps admin)", lambda: install_admin(),
                          visible=not is_admin()),
         pystray.MenuItem("Iniciar com o Windows", toggle_startup, checked=lambda _: STARTUP_LNK.exists()),
@@ -516,6 +582,11 @@ def run_tray():
     )
     tray = pystray.Icon("phone-mouse", Image.open(ICON_PNG), "Phone Mouse", menu)
     notify_bg(wait=True)
+    cfg = load_config()
+    if not cfg.get("setup_shown"):   # primeira vez neste PC: mostra como assinar a notificação
+        cfg["setup_shown"] = True
+        CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        threading.Thread(target=open_notification_setup, daemon=True).start()
     tray.run()
 
 
@@ -525,6 +596,9 @@ def main():
     if "--make-desktop-shortcut" in sys.argv:
         make_shortcut(desktop_dir() / "Phone Mouse.lnk")
         print(f"Atalho criado em {desktop_dir()}")
+        return
+    if "--setup-notification" in sys.argv:
+        open_notification_setup()
         return
     if "--install-admin" in sys.argv:
         install_admin()
