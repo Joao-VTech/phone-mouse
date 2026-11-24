@@ -35,6 +35,14 @@ if sys.stdout is None:
     sys.stdout = sys.stderr = open(BASE / "phone-mouse.log", "a", encoding="utf-8", buffering=1)
 
 # ---------------------------------------------------------------- config
+def new_pin() -> str:
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+def save_config(cfg: dict) -> None:
+    CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
 def load_config() -> dict:
     cfg = {}
     if CONFIG.exists():
@@ -48,6 +56,9 @@ def load_config() -> dict:
         changed = True
     if not cfg.get("ntfy_topic"):
         cfg["ntfy_topic"] = "phonemouse-" + secrets.token_hex(8)   # tópico secreto, difícil de adivinhar
+        changed = True
+    if not cfg.get("pin"):
+        cfg["pin"] = new_pin()
         changed = True
     if changed:
         CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -484,7 +495,7 @@ def open_address_page(reason: str = "") -> None:
         return
     url = f"https://{ip}:{PORT}"
     buf = io.BytesIO()
-    qrcode.make(url, box_size=10, border=2).save(buf, format="PNG")
+    qrcode.make(pin_url(url), box_size=10, border=2).save(buf, format="PNG")   # QR com PIN embutido
     qr = base64.b64encode(buf.getvalue()).decode()
     others = [(a, n) for a, n in physical_addresses() if a != ip]
     alt = ""
@@ -504,6 +515,7 @@ def open_address_page(reason: str = "") -> None:
  h1 {{ font-size:26px; margin:0 0 6px; }} .why {{ color:var(--mut); margin:0 0 16px; }}
  .qr {{ width:300px; max-width:90vw; background:#fff; padding:10px; border-radius:14px; }}
  .url {{ font-size:22px; font-weight:600; margin:14px 0 4px; word-break:break-all; }}
+ .pin {{ font-size:20px; margin:6px 0 0; color:var(--mut); }} .pin b {{ color:var(--fg); letter-spacing:4px; font-size:26px; }}
  .alt {{ text-align:left; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-top:20px; }}
  .alt ul {{ margin:8px 0 0; padding-left:20px; }} .alt span {{ color:var(--mut); }}
  .foot {{ color:var(--mut); font-size:14px; margin-top:20px; }}
@@ -511,7 +523,8 @@ def open_address_page(reason: str = "") -> None:
 <h1>Abra no celular</h1>{note}
 <img class="qr" alt="QR code com o endereço do Phone Mouse" src="data:image/png;base64,{qr}">
 <div class="url">{html.escape(url)}</div>
-<p class="foot">Aponte a câmera do celular para o QR code. O celular precisa estar na mesma rede do PC.<br>
+<div class="pin">PIN: <b>{html.escape(current_pin())}</b></div>
+<p class="foot">Aponte a câmera do celular para o QR code (ele já leva o PIN). O celular precisa estar na mesma rede do PC.<br>
 Esta página pode ser fechada (Alt+F4).</p>
 {alt}
 </main></body></html>"""
@@ -553,7 +566,57 @@ async def index(_req):
     return web.FileResponse(BASE / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-async def info(_req):
+# ---------------------------------------------------------------- PIN de acesso
+MAX_FAILS, BLOCK_SECONDS = 5, 60
+_fails: dict[str, list] = {}   # ip -> [erros seguidos, bloqueado até]
+
+
+def current_pin() -> str:
+    return str(load_config()["pin"])
+
+
+def pin_url(base: str) -> str:
+    """Endereço com o PIN embutido: escanear o QR da tela do PC já pareia o celular."""
+    return f"{base}/#pin={current_pin()}"
+
+
+def check_pin(req) -> int:
+    """200 = ok, 401 = PIN errado/ausente, 429 = muitas tentativas (aguarde)."""
+    ip = req.remote or "?"
+    fails, until = _fails.get(ip, [0, 0.0])
+    if until > time.time():
+        return 429
+    if secrets.compare_digest(str(req.query.get("pin", "")), current_pin()):
+        _fails.pop(ip, None)
+        return 200
+    fails += 1
+    _fails[ip] = [0, time.time() + BLOCK_SECONDS] if fails >= MAX_FAILS else [fails, 0.0]
+    if fails >= MAX_FAILS:
+        print(f"[pin] {ip} bloqueado por {BLOCK_SECONDS}s após {MAX_FAILS} PINs errados")
+    return 401
+
+
+active_ws: set = set()
+loop_ref: dict = {}
+
+
+def regenerate_pin() -> str:
+    """Novo PIN: desconecta todos os celulares (eles pedem o PIN de novo)."""
+    cfg = load_config()
+    cfg["pin"] = new_pin()
+    save_config(cfg)
+    loop = loop_ref.get("loop")
+    if loop:
+        for ws in list(active_ws):
+            asyncio.run_coroutine_threadsafe(ws.close(code=4001, message=b"pin"), loop)
+    print("[pin] novo PIN gerado")
+    return cfg["pin"]
+
+
+async def info(req):
+    st = check_pin(req)
+    if st != 200:
+        return web.json_response({"error": "pin"}, status=st)
     return web.json_response({"port": PORT, "name": pc_name(), "primary": primary_ip(),
                               "wifi": local_ips(), **usb_state})
 
@@ -577,6 +640,11 @@ clients = {"n": 0}   # celulares conectados agora
 async def ws_handler(req):
     ws = web.WebSocketResponse(heartbeat=10)
     await ws.prepare(req)
+    st = check_pin(req)
+    if st != 200:   # 4001 = PIN errado, 4029 = aguarde
+        await ws.close(code=4001 if st == 401 else 4029, message=b"pin")
+        return ws
+    active_ws.add(ws)
     clients["n"] += 1
     print(f"[+] conectado: {req.remote} | {req.headers.get('User-Agent', '?')}")
     try:
@@ -602,6 +670,7 @@ async def ws_handler(req):
         for b in ("left", "right", "middle"):
             button(b, False)
         clients["n"] -= 1
+        active_ws.discard(ws)
         print(f"[-] desconectado: {req.remote}")
     return ws
 
@@ -615,6 +684,7 @@ def build_app() -> web.Application:
     app.router.add_get("/icon.png", icon)
 
     async def start_bg(app):
+        loop_ref["loop"] = asyncio.get_running_loop()
         app["adb"] = asyncio.create_task(adb_reverse_loop())
 
     app.on_startup.append(start_bg)
@@ -636,6 +706,7 @@ def print_banner(ips):
         print(f" Cabo USB (Android, depuração USB ligada):\n   https://localhost:{PORT}")
     else:
         print(" Cabo USB: adb não encontrado (instale com: winget install Google.PlatformTools)")
+    print(f" PIN de acesso: {current_pin()}")
     print("Aceite o aviso de certificado (é autoassinado).\n")
 
 
@@ -673,6 +744,11 @@ def run_tray():
                             "Não consegui enviar (notificação desligada ou sem internet).", "Phone Mouse")
         threading.Thread(target=job, daemon=True).start()
 
+    def new_pin_from_tray():
+        pin = regenerate_pin()
+        tray.update_menu()
+        tray.notify(f"Novo PIN: {pin}. Os celulares vão pedir o PIN de novo.", "Phone Mouse")
+
     def toggle_startup(_icon, _item):
         if STARTUP_LNK.exists():
             STARTUP_LNK.unlink()
@@ -687,6 +763,7 @@ def run_tray():
 
     menu = pystray.Menu(
         pystray.MenuItem(lambda _: f"Endereço: https://{primary_ip() or '?'}:{PORT}", None, enabled=False),
+        pystray.MenuItem(lambda _: f"PIN: {current_pin()}", None, enabled=False),
         pystray.MenuItem(lambda _: "Cabo: conectado" if usb_state["device"] else
                          ("Cabo: sem celular" if ADB else "Cabo: adb não instalado"), None, enabled=False),
         pystray.MenuItem("Modo administrador: ativo" if is_admin() else
@@ -694,6 +771,7 @@ def run_tray():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Enviar link para o celular", lambda: notify_bg(), default=True),
         pystray.MenuItem("Mostrar QR do endereço", lambda: open_address_page()),
+        pystray.MenuItem("Gerar novo PIN (desconecta os celulares)", lambda: new_pin_from_tray()),
         pystray.MenuItem("Configurar notificação no celular", lambda: open_notification_setup()),
         pystray.MenuItem("Ativar modo administrador (jogos e apps admin)", lambda: install_admin(),
                          visible=not is_admin()),
@@ -721,12 +799,13 @@ def print_url_qr() -> None:
         return
     url = f"https://{ip}:{PORT}"
     qr = qrcode.QRCode(border=2)
-    qr.add_data(url)
+    qr.add_data(pin_url(url))   # o QR já leva o PIN: escaneou, pareou
     try:
         qr.print_ascii(invert=True)
     except UnicodeEncodeError:
         pass   # console sem UTF-8: fica só o endereço escrito
-    print(f"\n  Aponte a câmera do celular para o QR code ou digite no navegador:\n\n      {url}\n")
+    print(f"\n  Aponte a câmera do celular para o QR code ou digite no navegador:\n\n      {url}"
+          f"\n\n  PIN de acesso: {current_pin()}\n")
 
 
 def set_autostart(on: bool) -> None:
@@ -743,6 +822,13 @@ def main():
     if "--make-desktop-shortcut" in sys.argv:
         make_shortcut(desktop_dir() / "Phone Mouse.lnk")
         print(f"Atalho criado em {desktop_dir()}")
+        return
+    if "--pin" in sys.argv:
+        print("PIN de acesso:", load_config()["pin"])
+        return
+    if "--new-pin" in sys.argv:
+        cfg = load_config(); cfg["pin"] = new_pin(); save_config(cfg)
+        print("Novo PIN:", cfg["pin"], "(reinicie o Phone Mouse se estiver rodando)")
         return
     if "--print-url" in sys.argv:
         print_url_qr()

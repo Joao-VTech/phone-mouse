@@ -38,6 +38,8 @@
   #bar { width:80%; height:10px; background:#333; border-radius:5px; overflow:hidden; }
   #bar div { height:100%; width:0; background:var(--act); }
   [hidden] { display:none !important; }
+  #pinIn { font-size:32px; letter-spacing:10px; text-align:center; width:220px; padding:10px; border-radius:12px;
+           border:1px solid #444; background:#1b1b1b; color:#fff; -webkit-user-select:text; user-select:text; touch-action:auto; }
   #cfg .line { flex-wrap:wrap; }
   /* painel do teclado (fica no topo, acima do teclado do celular) */
   #kb { position:fixed; top:0; left:0; right:0; z-index:10; background:#1b1b1b; padding:6px; border-bottom:1px solid #333; }
@@ -123,6 +125,16 @@
   <div id="err" style="color:#f87171"></div>
 </div>
 
+<!-- PIN de acesso -->
+<div class="overlay" id="pinBox" hidden>
+  <div class="big">🔒 PIN do PC</div>
+  <div id="pinMsg">Escaneie o QR code mostrado na tela do PC<br>ou digite o PIN de 6 dígitos.</div>
+  <input id="pinIn" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="••••••">
+  <button id="pinOk">Entrar</button>
+  <div id="pinErr" style="color:#f87171"></div>
+  <div style="color:var(--mut);font-size:14px">No PC: ícone do Phone Mouse perto do relógio → mostra o PIN.</div>
+</div>
+
 <!-- calibração -->
 <div class="overlay" id="cal" hidden>
   <div id="calStep" style="color:var(--mut)"></div>
@@ -136,10 +148,15 @@
 <script>
 const $ = id => document.getElementById(id);
 const cfgIds = ["sens","acc","dead","always"];
-const PM_KEYS = ["pm-cfg", "pm-mode", "pm-map"];
+const PM_KEYS = ["pm-cfg", "pm-mode", "pm-map", "pm-pin"];
 
 // Wi-Fi e cabo usam endereços diferentes (cada um com seu armazenamento), então ao
 // alternar as configurações e calibrações viajam junto na URL (#cfg=...).
+// QR code da tela do PC traz o PIN (#pin=123456): pareia sem digitar
+if (location.hash.startsWith("#pin=")) {
+  try { localStorage.setItem("pm-pin", JSON.stringify(location.hash.slice(5).replace(/\D/g, ""))); } catch {}
+  history.replaceState(null, "", location.pathname);
+}
 if (location.hash.startsWith("#cfg=")) {
   try {
     const data = JSON.parse(decodeURIComponent(location.hash.slice(5)));
@@ -251,7 +268,7 @@ const onCable = ["localhost", "127.0.0.1"].includes(location.hostname);
 $("link").textContent = onCable ? "🔌 Cabo  ⇄" : "📶 Wi-Fi  ⇄";
 $("link").onclick = async () => {
   let info;
-  try { info = await (await fetch("/info")).json(); }
+  try { info = await (await fetch(infoUrl())).json(); }
   catch { alert("Não consegui falar com o PC."); return; }
   let target;
   if (onCable) {
@@ -270,13 +287,51 @@ $("link").onclick = async () => {
 
 // ---- WebSocket
 let ws;
+// ---- PIN de acesso
+const getPin = () => { try { return JSON.parse(localStorage.getItem("pm-pin")) || ""; } catch { return ""; } };
+const setPin = p => { try { localStorage.setItem("pm-pin", JSON.stringify(p)); } catch {} };
+const infoUrl = () => `/info?pin=${encodeURIComponent(getPin())}`;
+async function pinStatus(pin) {
+  try { return (await fetch(`/info?pin=${encodeURIComponent(pin)}`)).status; } catch { return 0; }
+}
+function askPin(msg) {
+  return new Promise(resolve => {
+    const box = $("pinBox"), inp = $("pinIn");
+    if (msg) $("pinMsg").textContent = msg;
+    $("pinErr").textContent = ""; inp.value = ""; box.hidden = false;
+    setTimeout(() => inp.focus(), 50);
+    const submit = async () => {
+      const pin = inp.value.replace(/\D/g, "");
+      if (pin.length !== 6) { $("pinErr").textContent = "O PIN tem 6 dígitos."; return; }
+      const st = await pinStatus(pin);
+      if (st === 200) { setPin(pin); box.hidden = true; inp.blur(); resolve(); }
+      else if (st === 429) $("pinErr").textContent = "Muitas tentativas erradas. Aguarde 1 minuto.";
+      else if (st === 401) { $("pinErr").textContent = "PIN incorreto."; inp.value = ""; }
+      else $("pinErr").textContent = "Sem conexão com o PC.";
+    };
+    $("pinOk").onclick = submit;
+    inp.onkeydown = e => { if (e.key === "Enter") submit(); };
+    inp.oninput = () => { if (inp.value.replace(/\D/g, "").length === 6) submit(); };
+  });
+}
+async function ensurePin() {
+  const pin = getPin();
+  if (pin && await pinStatus(pin) === 200) return;
+  await askPin(pin ? "O PIN salvo não vale mais. Digite o PIN atual do PC." : null);
+}
+
 function connect() {
-  ws = new WebSocket(`wss://${location.host}/ws`);
+  ws = new WebSocket(`wss://${location.host}/ws?pin=${encodeURIComponent(getPin())}`);
   ws.onopen  = () => {
     $("conn").textContent = "● conectado"; $("conn").className = "ok";
-    fetch("/info").then(r => r.json()).then(i => { $("conn").textContent = "● " + i.name; document.title = "Phone Mouse · " + i.name; }).catch(() => {});
+    fetch(infoUrl()).then(r => r.json()).then(i => { $("conn").textContent = "● " + i.name; document.title = "Phone Mouse · " + i.name; }).catch(() => {});
   };
-  ws.onclose = () => { $("conn").textContent = "● desconectado"; $("conn").className = "bad"; setTimeout(connect, 1000); };
+  ws.onclose = e => {
+    $("conn").textContent = "● desconectado"; $("conn").className = "bad";
+    if (e.code === 4001) { setPin(""); askPin("O PIN do PC mudou. Digite o novo PIN.").then(connect); }
+    else if (e.code === 4029) { $("conn").textContent = "● aguarde (muitas tentativas)"; setTimeout(connect, 60000); }
+    else setTimeout(connect, 1000);
+  };
 }
 const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
 
@@ -607,6 +662,7 @@ $("go").onclick = async () => {
     }
     if (!window.isSecureContext) throw new Error("Precisa de HTTPS para ler os sensores.");
     window.addEventListener("devicemotion", onMotion);
+    await ensurePin();
     connect();
     navigator.wakeLock?.request("screen").catch(() => {});
     $("start").remove();
