@@ -569,6 +569,35 @@ const padUp = e => {
 };
 clutch.addEventListener("pointerup", padUp); clutch.addEventListener("pointercancel", padUp);
 
+// Gesto do teclado começando na MARGEM da tela (fora da tela cheia o touchpad não encosta na borda:
+// quem desliza a partir da borda da tela começa fora dele).
+const appEl = $("app");
+let marginSwipe = null;
+const inMargin = e => {
+  if (mode !== "pad" || document.body.classList.contains("full")) return false;
+  if (e.target?.closest?.("#clutch, #kb, .row, #topbar, #modeSeg")) return false;
+  const r = clutch.getBoundingClientRect();
+  return e.clientY >= r.top && e.clientY <= r.bottom && (e.clientX <= r.left + EDGE_PX || e.clientX >= r.right - EDGE_PX);
+};
+appEl.addEventListener("touchstart", e => {   // evita que o navegador use o toque (rolagem/foco) nesse gesto
+  const t = e.touches[0];
+  if (t && inMargin({ target: e.target, clientX: t.clientX, clientY: t.clientY })) e.preventDefault();
+}, { passive: false });
+appEl.addEventListener("pointerdown", e => {
+  if (!inMargin(e)) return;
+  marginSwipe = { x0: e.clientX, w: clutch.getBoundingClientRect().width, open: false };
+  appEl.setPointerCapture?.(e.pointerId);
+});
+appEl.addEventListener("pointermove", e => {
+  if (!marginSwipe || marginSwipe.open) return;
+  if (Math.abs(e.clientX - marginSwipe.x0) > marginSwipe.w * 0.35) { marginSwipe.open = true; navigator.vibrate?.(25); }
+});
+appEl.addEventListener("pointerup", () => {
+  const m = marginSwipe; marginSwipe = null;
+  if (m?.open) kbOpen ? closeKeyboard() : openKeyboard();
+});
+appEl.addEventListener("pointercancel", () => marginSwipe = null);
+
 // ---- teclado: usa o teclado do próprio celular; o texto digitado é enviado ao PC
 const kb = $("kb"), kbIn = $("kbIn"), SENTINEL = " ";   // espaço "guarda" para detectar backspace
 let kbPrev = SENTINEL, composing = false, kbOpen = false, kbSeen = false;
