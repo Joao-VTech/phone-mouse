@@ -1,5 +1,5 @@
 ; Instalador do Phone Mouse (Inno Setup 6). Gerado por build\build.py.
-#define AppVer "1.1.0"
+#define AppVer "1.2.0"
 #define AppExe "PhoneMouse.exe"
 
 [Setup]

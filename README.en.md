@@ -98,6 +98,11 @@ each phone and the warning is gone for good, even when the PC's IP changes: in t
 *Tirar o aviso de "site perigoso"* (or tray icon → *Tirar aviso…*, which shows a QR code). On iPhone, open the
 page in **Safari** to install the profile.
 
+<p align="center">
+  <img src="docs/tela-ajustes-seguranca.png" width="230" alt="Settings: remove the unsafe site warning">
+  <img src="docs/tela-confiar.png" width="230" alt="Trust this PC page with the steps">
+</p>
+
 ## Phone notification
 
 <p align="center"><img src="docs/notificacao.png" width="400" alt="Example of the phone notification"></p>

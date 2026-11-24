@@ -95,6 +95,11 @@ O PC tem uma **autoridade de certificados própria**, que vale **só para endere
 *Tirar o aviso de "site perigoso"* (ou ícone da bandeja → *Tirar aviso…*, que mostra um QR code). No iPhone,
 abra a página no **Safari** para instalar o perfil.
 
+<p align="center">
+  <img src="docs/tela-ajustes-seguranca.png" width="230" alt="Ajustes: tirar o aviso de site perigoso">
+  <img src="docs/tela-confiar.png" width="230" alt="Página Confiar neste PC com o passo a passo">
+</p>
+
 ## Notificação no celular
 
 <p align="center"><img src="docs/notificacao.png" width="400" alt="Exemplo da notificação no celular"></p>

@@ -37,7 +37,8 @@ ICON_ICO = BASE / "icon.ico"
 # instalado pela 1ª vez num PC que já usava a versão em script: aproveita PIN, tópico e certificado
 if FROZEN and not CONFIG.exists():
     _legacy = Path.home() / "phone-mouse"
-    for _name in ("config.json", "cert.pem", "key.pem"):
+    for _name in ("config.json", "cert.pem", "key.pem", "ca.pem", "ca-key.pem"):   # a autoridade também:
+        # assim os celulares que já confiam neste PC continuam sem aviso
         try:
             if (_legacy / _name).is_file():
                 shutil.copy2(_legacy / _name, BASE / _name)
